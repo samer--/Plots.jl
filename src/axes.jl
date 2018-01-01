@@ -148,8 +148,8 @@ const _label_func = Dict{Symbol,Function}(
 )
 
 
-scalefunc(scale::Symbol) = x -> get(_scale_funcs, scale, identity)(Float64(x))
-invscalefunc(scale::Symbol) = x -> get(_inv_scale_funcs, scale, identity)(Float64(x))
+scalefunc(scale::Symbol) = get(_scale_funcs, scale, identity) ∘ Float64
+invscalefunc(scale::Symbol) = get(_inv_scale_funcs, scale, identity) ∘ Float64
 labelfunc(scale::Symbol, backend::AbstractBackend) = get(_label_func, scale, string)
 
 function optimal_ticks_and_labels(axis::Axis, ticks = nothing)
@@ -525,101 +525,49 @@ end
 
 # -------------------------------------------------------------------------
 
-# compute the line segments which should be drawn for this axis
-function axis_drawing_info(sp::Subplot)
-    xaxis, yaxis = sp[:xaxis], sp[:yaxis]
-    xmin, xmax = axis_limits(xaxis)
-    ymin, ymax = axis_limits(yaxis)
-    xticks = get_ticks(xaxis)
-    yticks = get_ticks(yaxis)
-    xaxis_segs = Segments(2)
-    yaxis_segs = Segments(2)
-    xtick_segs = Segments(2)
-    ytick_segs = Segments(2)
-    xgrid_segs = Segments(2)
-    ygrid_segs = Segments(2)
-    xborder_segs = Segments(2)
-    yborder_segs = Segments(2)
-
-    if sp[:framestyle] != :none
-        # xaxis
-        if xaxis[:showaxis]
-            if sp[:framestyle] != :grid
-                y1, y2 = if sp[:framestyle] in (:origin, :zerolines)
-                    0.0, 0.0
-                else
-                    xor(xaxis[:mirror], yaxis[:flip]) ? (ymax, ymin) : (ymin, ymax)
-                end
-                push!(xaxis_segs, (xmin, y1), (xmax, y1))
+function axis_info(sp, axis_pi, oaxis_pi, psi)
+    null = zeros(0,2)
+    axis, (min, max), ticks = axis_pi # this axis
+    oaxis, (omin, omax), _ = oaxis_pi # the other axis
+    flipped = xor(axis[:mirror], oaxis[:flip])
+    ticks1 = if axis[:showaxis] && sp[:framestyle] == :origin && length(ticks) > 1
                 # don't show the 0 tick label for the origin framestyle
-                if sp[:framestyle] == :origin && length(xticks) > 1
-                    showticks = xticks[1] .!= 0
-                    xticks = (xticks[1][showticks], xticks[2][showticks])
-                end
-            end
-            sp[:framestyle] in (:semi, :box) && push!(xborder_segs, (xmin, y2), (xmax, y2)) # top spine
-        end
-        if !(xaxis[:ticks] in (nothing, false))
-            f = scalefunc(yaxis[:scale])
-            invf = invscalefunc(yaxis[:scale])
-            ticks_in = xaxis[:tick_direction] == :out ? -1 : 1
-            t1 = invf(f(ymin) + 0.015 * (f(ymax) - f(ymin)) * ticks_in)
-            t2 = invf(f(ymax) - 0.015 * (f(ymax) - f(ymin)) * ticks_in)
-            t3 = invf(f(0) + 0.015 * (f(ymax) - f(ymin)) * ticks_in)
+                showticks = ticks[1] .!= 0
+                (ticks[1][showticks], ticks[2][showticks])
+             else
+                ticks # !!! even if not showing axis?
+             end
 
-            for xtick in xticks[1]
-                if xaxis[:showaxis]
-                    tick_start, tick_stop = if sp[:framestyle] == :origin
-                        (0, t3)
-                    else
-                        xor(xaxis[:mirror], yaxis[:flip]) ? (ymax, t2) : (ymin, t1)
-                    end
-                    push!(xtick_segs, (xtick, tick_start), (xtick, tick_stop)) # bottom tick
-                end
-                # sp[:draw_axes_border] && push!(xaxis_segs, (xtick, ymax), (xtick, t2)) # top tick
-                xaxis[:grid] && push!(xgrid_segs, (xtick, ymin), (xtick, ymax)) # vertical grid
-            end
-        end
+    phi(f) = psi(vcat(map(f, ticks1[1])...))
 
-        # yaxis
-        if yaxis[:showaxis]
-            if sp[:framestyle] != :grid
-                x1, x2 = if sp[:framestyle] in (:origin, :zerolines)
-                    0.0, 0.0
-                else
-                    xor(yaxis[:mirror], xaxis[:flip]) ? (xmax, xmin) : (xmin, xmax)
-                end
-                push!(yaxis_segs, (x1, ymin), (x1, ymax))
-                # don't show the 0 tick label for the origin framestyle
-                if sp[:framestyle] == :origin && length(yticks) > 1
-                    showticks = yticks[1] .!= 0
-                    yticks = (yticks[1][showticks], yticks[2][showticks])
-                end
-            end
-            sp[:framestyle] in (:semi, :box) && push!(yborder_segs, (x2, ymin), (x2, ymax)) # right spine
-        end
-        if !(yaxis[:ticks] in (nothing, false))
-            f = scalefunc(xaxis[:scale])
-            invf = invscalefunc(xaxis[:scale])
-            ticks_in = yaxis[:tick_direction] == :out ? -1 : 1
-            t1 = invf(f(xmin) + 0.015 * (f(xmax) - f(xmin)) * ticks_in)
-            t2 = invf(f(xmax) - 0.015 * (f(xmax) - f(xmin)) * ticks_in)
-            t3 = invf(f(0) + 0.015 * (f(xmax) - f(xmin)) * ticks_in)
-
-            for ytick in yticks[1]
-                if yaxis[:showaxis]
-                    tick_start, tick_stop = if sp[:framestyle] == :origin
-                        (0, t3)
-                    else
-                        xor(yaxis[:mirror], xaxis[:flip]) ? (xmax, t2) : (xmin, t1)
-                    end
-                    push!(ytick_segs, (tick_start, ytick), (tick_stop, ytick)) # left tick
-                end
-                # sp[:draw_axes_border] && push!(yaxis_segs, (xmax, ytick), (t2, ytick)) # right tick
-                yaxis[:grid] && push!(ygrid_segs, (xmin, ytick), (xmax, ytick)) # horizontal grid
-            end
-        end
+    function spine_segs()
+        o = sp[:framestyle] in (:origin, :zerolines) ? 0.0 : flipped ? omax : omin
+        psi([min  o; max o])
     end
 
-    xticks, yticks, xaxis_segs, yaxis_segs, xtick_segs, ytick_segs, xgrid_segs, ygrid_segs, xborder_segs, yborder_segs
+    function tick_segs()
+        f    = scalefunc(oaxis[:scale])
+        invf = invscalefunc(oaxis[:scale])
+        # FIXME - tick length should be proportional to font size
+        ends(o,d) = o, invf(f(o) + 0.015 * d * (f(omax) - f(omin)) * (axis[:tick_direction] == :out ? -1 : 1))
+        start, stop = sp[:framestyle] == :origin ? ends(0,1) : (flipped ? ends(omax,-1) : ends(omin,1))
+        phi(t->[t start; t stop; NaN NaN])
+    end
+
+    Dict(:axis => axis, :ticks => ticks1,
+         :spine_segs  => if (axis[:showaxis] && sp[:framestyle] in [:origin, :zerolines]) spine_segs() else null end,
+         :tick_segs   => if (axis[:showaxis] && !(axis[:ticks] in (:none, nothing, false))) tick_segs() else null end,
+         :grid_segs   => if (sp[:framestyle] != :none && axis[:grid] && !(axis[:ticks] in (nothing, false)))
+                            phi(t->[t omin; t omax; NaN NaN])
+                         else null end,
+         :border_segs => if (axis[:showaxis] && sp[:framestyle] in [:semi,:box])
+                            psi([min omax; max omax; NaN NaN; min omin; max omin])
+                         else null end)
+end
+
+# compute the line segments which should be drawn for this axis
+function axis_drawing_info(sp::Subplot)
+    axis_pre_info(axis) = (axis, axis_limits(axis), get_ticks(axis))
+    xpi, ypi = axis_pre_info(sp[:xaxis]), axis_pre_info(sp[:yaxis])
+    return axis_info(sp, xpi, ypi, identity), axis_info(sp, ypi, xpi, x -> x[:,[2,1]])
 end

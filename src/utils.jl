@@ -156,6 +156,7 @@ to_nan(::Type{NTuple{2,Float64}}) = (NaN, NaN)
 
 coords(segs::Segments{Float64}) = segs.pts
 coords(segs::Segments{NTuple{2,Float64}}) = Float64[p[1] for p in segs.pts], Float64[p[2] for p in segs.pts]
+coords(segs::Array{Float64,2}) = segs[:,1], segs[:,2]
 
 function Base.push!(segments::Segments{T}, vs...) where T
     if !isempty(segments.pts)

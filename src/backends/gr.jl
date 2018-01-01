@@ -116,7 +116,7 @@ const gr_halign = KW(
 )
 
 const gr_valign = KW(
-    :top => 1,
+    :top => 2,
     :vcenter => 3,
     :bottom => 5
 )
@@ -212,7 +212,8 @@ function gr_text(x, y, s)
     end
 end
 
-function gr_polaraxes(rmin::Real, rmax::Real, sp::Subplot)
+function gr_polaraxes(rlims, sp::Subplot)
+    rmin, rmax = rlims
     GR.savestate()
     xaxis = sp[:xaxis]
     yaxis = sp[:yaxis]
@@ -552,7 +553,6 @@ function gr_display(plt::Plot, fmt="")
     display_height_ratio = display_height_meters / display_height_px
 
     # compute the viewport_canvas, normalized to the larger dimension
-    viewport_canvas = Float64[0,1,0,1]
     w, h = plt[:size]
     if !haskey(ENV, "PLOTS_TEST")
         dpi_factor = plt[:dpi] / DPI
@@ -568,19 +568,19 @@ function gr_display(plt::Plot, fmt="")
         msize = display_width_ratio * w * dpi_factor
         GR.setwsviewport(0, msize, 0, msize * ratio)
         GR.setwswindow(0, 1, 0, ratio)
-        viewport_canvas[3] *= ratio
-        viewport_canvas[4] *= ratio
+        viewport_canvas = Float64[0,1,0,ratio]
     else
         ratio = float(w) / h
         msize = display_height_ratio * h * dpi_factor
         GR.setwsviewport(0, msize * ratio, 0, msize)
         GR.setwswindow(0, ratio, 0, 1)
-        viewport_canvas[1] *= ratio
-        viewport_canvas[2] *= ratio
+        viewport_canvas = Float64[0,ratio,0,1]
     end
 
     # fill in the viewport_canvas background
-    gr_fill_viewport(viewport_canvas, plt[:background_color_outside])
+    GR.setclip(0)
+    gr_fill_viewport(Float64[-5,6,-5,6], plt[:background_color_outside])
+    GR.setclip(1)
 
     # update point mult
     px_per_pt = px / pt
@@ -594,89 +594,157 @@ function gr_display(plt::Plot, fmt="")
     GR.updatews()
 end
 
-
-function gr_set_xticks_font(sp)
-    flip = sp[:yaxis][:flip]
-    mirror = sp[:xaxis][:mirror]
-    gr_set_font(tickfont(sp[:xaxis]),
-                halign = (:left, :hcenter, :right)[sign(sp[:xaxis][:rotation]) + 2],
-                valign = (mirror ? :bottom : :top),
-                rotation = sp[:xaxis][:rotation])
-    return flip, mirror
-end
-
-
-function gr_set_yticks_font(sp)
-    flip = sp[:xaxis][:flip]
-    mirror = sp[:yaxis][:mirror]
-    gr_set_font(tickfont(sp[:yaxis]),
-                halign = (mirror ? :left : :right),
-                valign = (:top, :vcenter, :bottom)[sign(sp[:yaxis][:rotation]) + 2],
-                rotation = sp[:yaxis][:rotation])
-    return flip, mirror
-end
-
-function gr_get_ticks_size(ticks, i)
-    GR.savestate()
-    GR.selntran(0)
-    l = 0.0
-    for (cv, dv) in zip(ticks...)
-        tb = gr_inqtext(0, 0, string(dv))[i]
-        tb_min, tb_max = extrema(tb)
-        l = max(l, tb_max - tb_min)
-    end
-    GR.restorestate()
-    return l
-end
-
-function _update_min_padding!(sp::Subplot{GRBackend})
+function update_env!()
     if !haskey(ENV, "GKSwstype")
         if isijulia() || (isdefined(Main, :Juno) && Juno.isactive())
             ENV["GKSwstype"] = "svg"
         end
     end
-    # Add margin given by the user
-    leftpad   = 2mm  + sp[:left_margin]
-    toppad    = 2mm  + sp[:top_margin]
-    rightpad  = 4mm  + sp[:right_margin]
-    bottompad = 2mm  + sp[:bottom_margin]
-    # Add margin for title
-    if sp[:title] != ""
-        toppad += 5mm
+end
+
+function gr_set_axis_font!(axis, direction)
+    k    = axis[:mirror] ? -1 : 1
+    trot = direction + axis[:rotation]
+    trigcat(th,a,b,c,t) = t<-th ? a : (t<=th ? b : c)
+    gr_set_font(tickfont(axis),
+                halign = trigcat(0.1, :left, :hcenter, :right, k*sind(trot)),
+                valign = trigcat(0.2, :bottom, :vcenter, :top, k*cosd(trot)),
+                rotation = axis[:rotation])
+end
+
+# required backend API function
+function _update_min_padding!(sp::Subplot{GRBackend})
+    update_env!() # to allow text measuring functions to work in min_padding
+    sp.minpad = min_padding(sp, axis_drawing_info(sp))
+end
+
+# ----------------- Display function and helpers ----------------------
+
+add(a) = (b -> a+b)
+diff(p) = p[2] - p[1]
+ffst(f) = p -> (f(p[1]), p[2])
+fsnd(f) = p -> (p[1], f(p[2]))
+wctondc(p) = GR.wctondc(p[1],p[2])
+swap(p) = (p[2], p[1])
+
+function min_padding(sp::Subplot{GRBackend}, axis_info)
+    function text_height(font, text)
+        return (text=="" ? 0px :
+                    (gr_set_font(font);
+                    h = gr_plot_size[2] * diff(extrema(gr_inqtext(0, 0, text)[2])) * px;
+                    println(("height",text,h));
+                    h))
     end
-    # Add margin for x and y ticks
-    xticks, yticks = axis_drawing_info(sp)[1:2]
-    if !(xticks in (nothing, false))
-        flip, mirror = gr_set_xticks_font(sp)
-        l = gr_get_ticks_size(xticks, 2)
-        if mirror
-            toppad += 1mm + gr_plot_size[2] * l * px
+    function axis_padding(axis, ticks, direction, dim)
+        pad1 = text_height(guidefont(axis), axis[:guide]) 
+        if (ticks in (nothing, false) || length(ticks[2])==0) return [pad1, 0px]
         else
-            bottompad += 1mm + gr_plot_size[2] * l * px
+            gr_set_axis_font!(axis, direction)
+            label_extrema(dv) = extrema(gr_inqtext(0, 0, string(dv))[dim])
+            minmax(a,b) = (min(a[1],b[1]), max(a[2],b[2]))
+            pad = gr_plot_size[dim] * (axis[:tick_direction] == :out ? 1.9 : 1.4) * diff(foldl(minmax, label_extrema.(ticks[2]))) * px
+            return axis[:mirror] ?  [pad1, pad] : [pad1 + pad, 0px]
         end
     end
-    if !(yticks in (nothing, false))
-        flip, mirror = gr_set_yticks_font(sp)
-        l = gr_get_ticks_size(yticks, 1)
-        if mirror
-            rightpad += 1mm + gr_plot_size[1] * l * px
-        else
-            leftpad += 1mm + gr_plot_size[1] * l * px
+
+    GR.savestate()
+    GR.selntran(0)
+    vpad = axis_padding(sp[:xaxis], axis_info[1][:ticks], 0, 2) + [0mm + sp[:bottom_margin], 0mm + sp[:top_margin]]
+    hpad = axis_padding(sp[:yaxis], axis_info[2][:ticks], 90, 1) + [0mm + sp[:left_margin], 0mm + sp[:right_margin]]
+    title_height = text_height(titlefont(sp), sp[:title])
+    GR.restorestate()
+    return (hpad[1], vpad[2] + title_height, hpad[2], vpad[1])
+end
+
+function draw_3d_axes!(viewport_plotarea, xmin, xmax, ymin, ymax, sp)
+    zmin, zmax = gr_lims(sp[:zaxis], true)
+    clims = sp[:clims]
+    if is_2tuple(clims)
+        isfinite(clims[1]) && (zmin = clims[1])
+        isfinite(clims[2]) && (zmax = clims[2])
+    end
+    GR.setspace(zmin, zmax, round.(Int, sp[:camera])...)
+    xtick = GR.tick(xmin, xmax) / 2
+    ytick = GR.tick(ymin, ymax) / 2
+    ztick = GR.tick(zmin, zmax) / 2
+    ticksize = 0.01 * (viewport_plotarea[2] - viewport_plotarea[1])
+
+    function maybe_grid(axis, grid3d_args...)
+        if axis[:grid]
+            gr_set_line(axis[:gridlinewidth], axis[:gridstyle], axis[:foreground_color_grid])
+            GR.settransparency(axis[:gridalpha])
+            GR.grid3d(grid3d_args...)
         end
     end
-    # Add margin for x label
-    if sp[:xaxis][:guide] != ""
-        bottompad += 4mm
+    maybe_grid(sp[:xaxis], xtick, 0, 0, xmin, ymax, zmin, 2, 0, 0)
+    maybe_grid(sp[:yaxis], 0, ytick, 0, xmin, ymax, zmin, 0, 2, 0)
+    maybe_grid(sp[:zaxis], 0, 0, ztick, xmin, ymax, zmin, 0, 0, 2)
+    gr_set_line(1, :solid, xaxis[:foreground_color_axis])
+    GR.settransparency(1)
+    GR.axes3d(xtick, 0, ztick, xmin, ymin, zmin, 2, 0, 2, -ticksize)
+    GR.axes3d(0, ytick, 0, xmax, ymin, zmin, 0, 2, 0, ticksize)
+end
+
+function draw_grid!(info)
+    axis = info[:axis]
+    if axis[:grid] 
+        GR.settransparency(axis[:gridalpha])
+        gr_set_line(axis[:gridlinewidth], axis[:gridstyle], axis[:foreground_color_grid])
+        gr_polyline(coords(info[:grid_segs])...)
+        GR.settransparency(1.0)
     end
-    # Add margin for y label
-    if sp[:yaxis][:guide] != ""
-        leftpad += 4mm
+end
+
+function draw_spine!(info)
+    if info[:axis][:showaxis]
+        gr_set_line(1, :solid, info[:axis][:foreground_color_axis])
+        gr_polyline(coords(info[:spine_segs])...)
     end
-    sp.minpad = (leftpad, toppad, rightpad, bottompad)
+end
+
+function draw_border!(intensity, info)
+    gr_set_line(intensity, :solid, info[:axis][:foreground_color_border])
+    gr_polyline(coords(info[:border_segs])...)
+end
+
+function draw_borders!(sp, axes_info, xmin, xmax, ymin, ymax)
+    if sp[:framestyle] in (:box, :semi)
+        intensity = sp[:framestyle] == :semi ? 0.5 : 1.0
+        GR.settransparency(intensity)
+        draw_border!.(intensity, axes_info)
+    end
+end
+
+function draw_ticks_and_labels!(sp, direction, info, other, axis_text_pos)
+    if length(info[:tick_segs]) > 0
+        ticks, axis = info[:ticks], info[:axis]
+        oaxis, omin, omax = other
+        perp = sp[:framestyle] == :origin ? 0 : (xor(oaxis[:flip], axis[:mirror]) ? omax : omin)
+
+        char_height = _gr_point_mult[1] * tickfont(axis).pointsize
+        gr_set_axis_font!(axis, direction)
+        place = axis_text_pos(add(char_height * (axis[:mirror] ? 1 : - 1) * (axis[:tick_direction] == :out ? 0.9 : 0.4)))
+        for (cv, dv) in zip(ticks...)
+            gr_text(place(cv, perp))...,
+                    axis[:scale] in (:ln, :log10, :log2) && axis[:ticks] == :auto ? string(dv, "\\ ") : string(dv)
+        end
+
+        if sp[:framestyle] in (:zerolines, :grid)
+            gr_set_line(1, :solid, axis[:foreground_color_grid])
+            GR.settransparency(axis[:gridalpha])
+        else
+            gr_set_line(1, :solid, axis[:foreground_color_axis])
+        end
+        gr_polyline(coords(info[:tick_segs])...)
+    end
 end
 
 function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
-    _update_min_padding!(sp)
+    update_env!()
+    # these are the Axis objects, which hold scale, lims, etc
+    x_info, y_info = axis_drawing_info(sp)
+    xaxis, yaxis = x_info[:axis], y_info[:axis]
+    axes_info = [x_info, y_info]
 
     # the viewports for this subplot
     viewport_subplot = gr_viewport_from_bbox(sp, bbox(sp), w, h, viewport_canvas)
@@ -722,21 +790,16 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
         end
         if st == :heatmap
             outside_ticks = true
-            x, y = heatmap_edges(series[:x], sp[:xaxis][:scale]), heatmap_edges(series[:y], sp[:yaxis][:scale])
+            x, y = heatmap_edges(series[:x], xaxis[:scale]), heatmap_edges(series[:y], yaxis[:scale])
             xy_lims = x[1], x[end], y[1], y[end]
-            expand_extrema!(sp[:xaxis], x)
-            expand_extrema!(sp[:yaxis], y)
+            expand_extrema!(xaxis, x)
+            expand_extrema!(yaxis, y)
             data_lims = gr_xy_axislims(sp)
         end
     end
 
     # set our plot area view
     gr_set_viewport_plotarea()
-
-    # these are the Axis objects, which hold scale, lims, etc
-    xaxis = sp[:xaxis]
-    yaxis = sp[:yaxis]
-    zaxis = sp[:zaxis]
 
     # set the scale flags and window
     xmin, xmax, ymin, ymax = data_lims
@@ -771,147 +834,27 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
         GR.setscale(scaleop)
     end
 
-    # draw the axes
+    # draw the axes FIXME 
     gr_set_font(tickfont(xaxis))
     GR.setlinewidth(1)
 
     if is3d(sp)
-        zmin, zmax = gr_lims(zaxis, true)
-        clims = sp[:clims]
-        if is_2tuple(clims)
-            isfinite(clims[1]) && (zmin = clims[1])
-            isfinite(clims[2]) && (zmax = clims[2])
-        end
-        GR.setspace(zmin, zmax, round.(Int, sp[:camera])...)
-        xtick = GR.tick(xmin, xmax) / 2
-        ytick = GR.tick(ymin, ymax) / 2
-        ztick = GR.tick(zmin, zmax) / 2
-        ticksize = 0.01 * (viewport_plotarea[2] - viewport_plotarea[1])
-
-        if xaxis[:grid]
-            gr_set_line(xaxis[:gridlinewidth], xaxis[:gridstyle], xaxis[:foreground_color_grid])
-            GR.settransparency(xaxis[:gridalpha])
-            GR.grid3d(xtick, 0, 0, xmin, ymax, zmin, 2, 0, 0)
-        end
-        if yaxis[:grid]
-            gr_set_line(yaxis[:gridlinewidth], yaxis[:gridstyle], yaxis[:foreground_color_grid])
-            GR.settransparency(yaxis[:gridalpha])
-            GR.grid3d(0, ytick, 0, xmin, ymax, zmin, 0, 2, 0)
-        end
-        if zaxis[:grid]
-            gr_set_line(zaxis[:gridlinewidth], zaxis[:gridstyle], zaxis[:foreground_color_grid])
-            GR.settransparency(zaxis[:gridalpha])
-            GR.grid3d(0, 0, ztick, xmin, ymax, zmin, 0, 0, 2)
-        end
-        gr_set_line(1, :solid, xaxis[:foreground_color_axis])
-        GR.settransparency(1)
-        GR.axes3d(xtick, 0, ztick, xmin, ymin, zmin, 2, 0, 2, -ticksize)
-        GR.axes3d(0, ytick, 0, xmax, ymin, zmin, 0, 2, 0, ticksize)
-
+        draw_3d_axes!(viewport_plotarea, xmin, xmax, ymin, ymax, sp)
     elseif ispolar(sp)
-        r = gr_set_viewport_polar()
+        _r = gr_set_viewport_polar()
         #rmin, rmax = GR.adjustrange(ignorenan_minimum(r), ignorenan_maximum(r))
-        rmin, rmax = axis_limits(sp[:yaxis])
-        gr_polaraxes(rmin, rmax, sp)
+        gr_polaraxes(axis_limits(yaxis), sp)
 
     elseif draw_axes
         if xmax > xmin && ymax > ymin
             GR.setwindow(xmin, xmax, ymin, ymax)
         end
 
-        xticks, yticks, xspine_segs, yspine_segs, xtick_segs, ytick_segs, xgrid_segs, ygrid_segs, xborder_segs, yborder_segs = axis_drawing_info(sp)
-        # @show xticks yticks #spine_segs grid_segs
-
-        # draw the grid lines
-        if xaxis[:grid]
-            # gr_set_linecolor(sp[:foreground_color_grid])
-            # GR.grid(xtick, ytick, 0, 0, majorx, majory)
-            gr_set_line(xaxis[:gridlinewidth], xaxis[:gridstyle], xaxis[:foreground_color_grid])
-            GR.settransparency(xaxis[:gridalpha])
-            gr_polyline(coords(xgrid_segs)...)
-        end
-        if yaxis[:grid]
-            gr_set_line(yaxis[:gridlinewidth], yaxis[:gridstyle], yaxis[:foreground_color_grid])
-            GR.settransparency(yaxis[:gridalpha])
-            gr_polyline(coords(ygrid_segs)...)
-        end
-        GR.settransparency(1.0)
-
-        # axis lines
-        if xaxis[:showaxis]
-            gr_set_line(1, :solid, xaxis[:foreground_color_axis])
-            GR.setclip(0)
-            gr_polyline(coords(xspine_segs)...)
-        end
-        if yaxis[:showaxis]
-            gr_set_line(1, :solid, yaxis[:foreground_color_axis])
-            GR.setclip(0)
-            gr_polyline(coords(yspine_segs)...)
-        end
+        draw_grid!.(axes_info)
+        GR.setclip(0)
+        draw_spine!.(axes_info)
         GR.setclip(1)
-
-        # axis ticks
-        if xaxis[:showaxis]
-            if sp[:framestyle] in (:zerolines, :grid)
-                gr_set_line(1, :solid, xaxis[:foreground_color_grid])
-                GR.settransparency(xaxis[:gridalpha])
-            else
-                gr_set_line(1, :solid, xaxis[:foreground_color_axis])
-            end
-            GR.setclip(0)
-            gr_polyline(coords(xtick_segs)...)
-        end
-        if  yaxis[:showaxis]
-            if sp[:framestyle] in (:zerolines, :grid)
-                gr_set_line(1, :solid, yaxis[:foreground_color_grid])
-                GR.settransparency(yaxis[:gridalpha])
-            else
-                gr_set_line(1, :solid, yaxis[:foreground_color_axis])
-            end
-            GR.setclip(0)
-            gr_polyline(coords(ytick_segs)...)
-        end
-        GR.setclip(1)
-
-        # tick marks
-        if !(xticks in (:none, nothing, false)) && xaxis[:showaxis]
-            # x labels
-            flip, mirror = gr_set_xticks_font(sp)
-            for (cv, dv) in zip(xticks...)
-                # use xor ($) to get the right y coords
-                xi, yi = GR.wctondc(cv, sp[:framestyle] == :origin ? 0 : xor(flip, mirror) ? ymax : ymin)
-                # @show cv dv ymin xi yi flip mirror (flip $ mirror)
-                # ensure correct dispatch in gr_text for automatic log ticks
-                dv = xaxis[:scale] in (:ln, :log10, :log2) && xaxis[:ticks] == :auto ? string(dv, "\\ ") : string(dv)
-                gr_text(xi, yi + (mirror ? 1 : -1) * 5e-3 * (xaxis[:tick_direction] == :out ? 1.5 : 1.0), dv)
-            end
-        end
-
-        if !(yticks in (:none, nothing, false)) && yaxis[:showaxis]
-            # y labels
-            flip, mirror = gr_set_yticks_font(sp)
-            for (cv, dv) in zip(yticks...)
-                # use xor ($) to get the right y coords
-                xi, yi = GR.wctondc(sp[:framestyle] == :origin ? 0 : xor(flip, mirror) ? xmax : xmin, cv)
-                # @show cv dv xmin xi yi
-                # ensure correct dispatch in gr_text for automatic log ticks
-                dv = yaxis[:scale] in (:ln, :log10, :log2) && yaxis[:ticks] == :auto ? string(dv, "\\ ") : string(dv)
-                gr_text(xi + (mirror ? 1 : -1) * 1e-2 * (yaxis[:tick_direction] == :out ? 1.5 : 1.0), yi, dv)
-            end
-        end
-
-        # border
-        intensity = sp[:framestyle] == :semi ? 0.5 : 1.0
-        if sp[:framestyle] in (:box, :semi)
-            gr_set_line(intensity, :solid, xaxis[:foreground_color_border])
-            GR.settransparency(intensity)
-            gr_polyline(coords(xborder_segs)...)
-            gr_set_line(intensity, :solid, yaxis[:foreground_color_border])
-            GR.settransparency(intensity)
-            gr_polyline(coords(yborder_segs)...)
-        end
     end
-    # end
 
     # add the guides
     GR.savestate()
@@ -946,7 +889,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
     end
     GR.restorestate()
 
-    gr_set_font(tickfont(xaxis))
+    gr_set_font(tickfont(xaxis)) # !!! what?
 
     # this needs to be here to point the colormap to the right indices
     GR.setcolormap(1000 + GR.COLORMAP_COOLWARM)
@@ -1213,6 +1156,14 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
         GR.restorestate()
     end
 
+    if !is3d(sp) && !ispolar(sp) && draw_axes
+        GR.setclip(0)
+        maybe_reverse(mirror, t) = mirror ? reverse(t) : t
+        draw_ticks_and_labels!(sp, 0,  x_info, (yaxis, ymin, ymax), f -> fsnd(f) ∘ wctondc)
+        draw_ticks_and_labels!(sp, 90, y_info, (xaxis, xmin, xmax), f -> ffst(f) ∘ wctondc ∘ swap)
+        draw_borders!(sp, axes_info, xmin, xmax, ymin, ymax)
+        GR.setclip(1)
+    end
 
     # add the legend
     if sp[:legend] != :none
