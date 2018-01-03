@@ -402,11 +402,13 @@ end
 # this stores the conversion from a font pointsize to "percentage of window height" (which is what GR uses)
 const _gr_point_mult = 0.0018 * ones(1)
 
+function gr_char_height(f) _gr_point_mult[1] * f.pointsize end
+
 # set the font attributes... assumes _gr_point_mult has been populated already
 function gr_set_font(f::Font; halign = f.halign, valign = f.valign,
                               color = f.color, rotation = f.rotation)
     family = lowercase(f.family)
-    GR.setcharheight(_gr_point_mult[1] * f.pointsize)
+    GR.setcharheight(gr_char_height(f))
     GR.setcharup(sind(-rotation), cosd(-rotation))
     if haskey(gr_font_family, family)
         GR.settextfontprec(100 + gr_font_family[family], GR.TEXT_PRECISION_STRING)
@@ -584,7 +586,8 @@ function gr_display(plt::Plot, fmt="")
 
     # update point mult
     px_per_pt = px / pt
-    _gr_point_mult[1] = 1.5 * px_per_pt / max(h,w)
+    _gr_point_mult[1] = px_per_pt / max(h,w) # 1.5 * px_per_pt / max(h,w)
+    println(("Updated _gr_point_mult to", _gr_point_mult))
 
     # subplots:
     for sp in plt.subplots
@@ -628,12 +631,11 @@ wctondc(p) = GR.wctondc(p[1],p[2])
 swap(p) = (p[2], p[1])
 
 function min_padding(sp::Subplot{GRBackend}, axis_info)
+    # TODO add space between guides/title and window edge
     function text_height(font, text)
         return (text=="" ? 0px :
                     (gr_set_font(font);
-                    h = gr_plot_size[2] * diff(extrema(gr_inqtext(0, 0, text)[2])) * px;
-                    println(("height",text,h));
-                    h))
+                     max(gr_plot_size[1], gr_plot_size[2]) * diff(extrema(gr_inqtext(0, 0, text)[2])) * px))
     end
     function axis_padding(axis, ticks, direction, dim)
         pad1 = text_height(guidefont(axis), axis[:guide]) 
@@ -687,9 +689,9 @@ end
 
 function draw_grid!(info)
     axis = info[:axis]
-    if axis[:grid] 
-        GR.settransparency(axis[:gridalpha])
+    if axis[:grid]
         gr_set_line(axis[:gridlinewidth], axis[:gridstyle], axis[:foreground_color_grid])
+        GR.settransparency(axis[:gridalpha])
         gr_polyline(coords(info[:grid_segs])...)
         GR.settransparency(1.0)
     end
@@ -721,12 +723,12 @@ function draw_ticks_and_labels!(sp, direction, info, other, axis_text_pos)
         oaxis, omin, omax = other
         perp = sp[:framestyle] == :origin ? 0 : (xor(oaxis[:flip], axis[:mirror]) ? omax : omin)
 
-        char_height = _gr_point_mult[1] * tickfont(axis).pointsize
+        char_height = gr_char_height(tickfont(axis))
         gr_set_axis_font!(axis, direction)
         place = axis_text_pos(add(char_height * (axis[:mirror] ? 1 : - 1) * (axis[:tick_direction] == :out ? 0.9 : 0.4)))
         for (cv, dv) in zip(ticks...)
-            gr_text(place(cv, perp))...,
-                    axis[:scale] in (:ln, :log10, :log2) && axis[:ticks] == :auto ? string(dv, "\\ ") : string(dv)
+            gr_text(place((cv, perp))...,
+                    axis[:scale] in (:ln, :log10, :log2) && axis[:ticks] == :auto ? string(dv, "\\ ") : string(dv))
         end
 
         if sp[:framestyle] in (:zerolines, :grid)
@@ -858,6 +860,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
 
     # add the guides
     GR.savestate()
+    GR.setclip(0)
     if sp[:title] != ""
         gr_set_font(titlefont(sp))
         loc = sp[:title_location]
@@ -888,6 +891,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
         gr_text(viewport_subplot[1], gr_view_ycenter(), yaxis[:guide])
     end
     GR.restorestate()
+    GR.setclip(1)
 
     gr_set_font(tickfont(xaxis)) # !!! what?
 
@@ -1170,7 +1174,8 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
         GR.savestate()
         GR.selntran(0)
         GR.setscale(0)
-        gr_set_font(legendfont(sp))
+        legend_font = legendfont(sp)
+        gr_set_font(legend_font)
         w = 0
         i = 0
         n = 0
@@ -1192,7 +1197,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
             w = max(w, tbx[3] - tbx[1])
         end
         if w > 0
-            dy = _gr_point_mult[1] * sp[:legendfontsize] * 1.75
+            dy = 1.75 * gr_char_height(legend_font)
             h = dy*n
             (xpos,ypos) = gr_legend_pos(sp[:legend],w,h)
             GR.setfillintstyle(GR.INTSTYLE_SOLID)
