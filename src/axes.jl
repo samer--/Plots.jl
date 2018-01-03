@@ -555,7 +555,7 @@ function axis_info(sp, axis_pi, oaxis_pi, psi)
     end
 
     Dict(:axis => axis, :ticks => ticks1,
-         :spine_segs  => if (axis[:showaxis] && sp[:framestyle] in [:origin, :zerolines]) spine_segs() else null end,
+         :spine_segs  => if (axis[:showaxis] && sp[:framestyle] in [:axes, :origin, :zerolines]) spine_segs() else null end,
          :tick_segs   => if (axis[:showaxis] && !(axis[:ticks] in (:none, nothing, false))) tick_segs() else null end,
          :grid_segs   => if (sp[:framestyle] != :none && axis[:grid] && !(axis[:ticks] in (nothing, false)))
                             phi(t->[t omin; t omax; NaN NaN])
