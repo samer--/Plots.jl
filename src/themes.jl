@@ -56,6 +56,9 @@ function _theme(s::Symbol, defaults::KW; kw...)
     end
 
     # Set the theme's defaults
+    if isdefined(Main, :PLOTS_DEFAULTS)
+        default(;Main.PLOTS_DEFAULTS...)
+    end
     default(; defaults..., kw...)
     return
 end
