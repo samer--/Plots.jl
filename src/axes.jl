@@ -548,7 +548,6 @@ function axis_info(sp, axis_pi, oaxis_pi, psi)
     function tick_segs()
         f    = scalefunc(oaxis[:scale])
         invf = invscalefunc(oaxis[:scale])
-        # FIXME - tick length should be proportional to font size
         ends(o,d) = o, invf(f(o) + 0.015 * d * (f(omax) - f(omin)) * (axis[:tick_direction] == :out ? -1 : 1))
         start, stop = sp[:framestyle] == :origin ? ends(0,1) : (flipped ? ends(omax,-1) : ends(omin,1))
         phi(t->[t start; t stop; NaN NaN])
