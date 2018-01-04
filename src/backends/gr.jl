@@ -7,6 +7,9 @@
     Revise.track(Plots, joinpath(Pkg.dir("Plots"), "src", "backends", "gr.jl"))
 end
 
+minmax(a,b) = (min(a[1],b[1]), max(a[2],b[2]))
+trigcat(th,a,b,c,t) = t<-th ? a : (t<=th ? b : c)
+
 const _gr_attr = merge_with_base_supported([
     :annotations,
     :background_color_legend, :background_color_inside, :background_color_outside,
@@ -56,6 +59,11 @@ const _gr_style = [:auto, :solid, :dash, :dot, :dashdot, :dashdotdot]
 const _gr_marker = _allMarkers
 const _gr_scale = [:identity, :log10]
 is_marker_supported(::GRBackend, shape::Shape) = true
+
+const TICK_LABEL_PAD = 0.5
+const TICK_LENGTH = 0.8
+const TEXT_PAD = 0.2
+const TITLE_TEXT_PAD = 0.75
 
 function add_backend_string(::GRBackend)
     """
@@ -143,6 +151,7 @@ gr_set_fillcolor(c)   = GR.setfillcolorind(gr_getcolorind(_cycle(c,1)))
 gr_set_markercolor(c) = GR.setmarkercolorind(gr_getcolorind(_cycle(c,1)))
 gr_set_textcolor(c)   = GR.settextcolorind(gr_getcolorind(_cycle(c,1)))
 
+gr_text_extrema(dim, dv) = extrema(gr_inqtext(0, 0, string(dv))[dim])
 # --------------------------------------------------------------------------------------
 
 
@@ -437,10 +446,10 @@ const gr_plot_size = [600.0, 400.0]
 
 function gr_viewport_from_bbox(sp::Subplot{GRBackend}, bb::BoundingBox, w, h, viewport_canvas)
     viewport = zeros(4)
-    viewport[1] = viewport_canvas[2] * (left(bb) / w)
-    viewport[2] = viewport_canvas[2] * (right(bb) / w)
-    viewport[3] = viewport_canvas[4] * (1.0 - bottom(bb) / h)
-    viewport[4] = viewport_canvas[4] * (1.0 - top(bb) / h)
+    viewport[1] = viewport_canvas[2] * max(0,(left(bb) / w))
+    viewport[2] = viewport_canvas[2] * min(1,(right(bb) / w))
+    viewport[3] = viewport_canvas[4] * max(0,(1.0 - bottom(bb) / h))
+    viewport[4] = viewport_canvas[4] * min(1,(1.0 - top(bb) / h))
     if is3d(sp)
         vp = viewport[:]
         extent = min(vp[2] - vp[1], vp[4] - vp[3])
@@ -499,9 +508,6 @@ function gr_colorbar(sp::Subplot, clims)
     GR.axes(0, ztick, xmax, clims[1], 0, 1, 0.005)
     gr_set_viewport_plotarea()
 end
-
-gr_view_xcenter() = 0.5 * (viewport_plotarea[1] + viewport_plotarea[2])
-gr_view_ycenter() = 0.5 * (viewport_plotarea[3] + viewport_plotarea[4])
 
 function gr_legend_pos(s::Symbol,w,h)
     str = string(s)
@@ -587,7 +593,7 @@ function gr_display(plt::Plot, fmt="")
     # update point mult
     px_per_pt = px / pt
     _gr_point_mult[1] = px_per_pt / max(h,w) # 1.5 * px_per_pt / max(h,w)
-    println(("Updated _gr_point_mult to", _gr_point_mult))
+    #= println(("Updated _gr_point_mult to", _gr_point_mult)) =#
 
     # subplots:
     for sp in plt.subplots
@@ -608,7 +614,6 @@ end
 function gr_set_axis_font!(axis, direction)
     k    = axis[:mirror] ? -1 : 1
     trot = direction + axis[:rotation]
-    trigcat(th,a,b,c,t) = t<-th ? a : (t<=th ? b : c)
     gr_set_font(tickfont(axis),
                 halign = trigcat(0.1, :left, :hcenter, :right, k*sind(trot)),
                 valign = trigcat(0.2, :bottom, :vcenter, :top, k*cosd(trot)),
@@ -628,32 +633,35 @@ diff(p) = p[2] - p[1]
 ffst(f) = p -> (f(p[1]), p[2])
 fsnd(f) = p -> (p[1], f(p[2]))
 wctondc(p) = GR.wctondc(p[1],p[2])
+ndctowc(p) = GR.ndctowc(p[1],p[2])
 swap(p) = (p[2], p[1])
+trace(l,x) = (println((l,x)); x)
 
 function min_padding(sp::Subplot{GRBackend}, axis_info)
-    # TODO add space between guides/title and window edge
-    function text_height(font, text)
-        return (text=="" ? 0px :
-                    (gr_set_font(font);
-                     max(gr_plot_size[1], gr_plot_size[2]) * diff(extrema(gr_inqtext(0, 0, text)[2])) * px))
+    px_per_ndc = max(gr_plot_size[1], gr_plot_size[2])
+    function text_height(pad, font, text)
+        return text=="" ? 0px :
+                 (gr_set_font(font);
+                  px_per_ndc * (pad * gr_char_height(font) + diff(extrema(gr_inqtext(0, 0, text)[2]))) * px)
     end
     function axis_padding(axis, ticks, direction, dim)
-        pad1 = text_height(guidefont(axis), axis[:guide]) 
-        if (ticks in (nothing, false) || length(ticks[2])==0) return [pad1, 0px]
+        pad1 = text_height(TEXT_PAD, guidefont(axis), axis[:guide]) 
+        if (ticks in (nothing, false) || length(ticks[2])==0) 
+            pad = 0px
         else
             gr_set_axis_font!(axis, direction)
-            label_extrema(dv) = extrema(gr_inqtext(0, 0, string(dv))[dim])
-            minmax(a,b) = (min(a[1],b[1]), max(a[2],b[2]))
-            pad = gr_plot_size[dim] * (axis[:tick_direction] == :out ? 1.9 : 1.4) * diff(foldl(minmax, label_extrema.(ticks[2]))) * px
-            return axis[:mirror] ?  [pad1, pad] : [pad1 + pad, 0px]
+            char_height = gr_char_height(tickfont(axis))
+            pad = px_per_ndc * (char_height * (TICK_LABEL_PAD + (axis[:tick_direction] == :out ? TICK_LENGTH : 0))
+                                + diff(foldl(minmax, gr_text_extrema.(dim, ticks[2])))) * px
         end
+        return axis[:mirror] ?  [0px, pad1 + pad] : [pad1 + pad, 0px]
     end
 
     GR.savestate()
     GR.selntran(0)
-    vpad = axis_padding(sp[:xaxis], axis_info[1][:ticks], 0, 2) + [0mm + sp[:bottom_margin], 0mm + sp[:top_margin]]
-    hpad = axis_padding(sp[:yaxis], axis_info[2][:ticks], 90, 1) + [0mm + sp[:left_margin], 0mm + sp[:right_margin]]
-    title_height = text_height(titlefont(sp), sp[:title])
+    vpad = axis_padding(sp[:xaxis], axis_info[1][:ticks], 0, 2) + [sp[:bottom_margin], sp[:top_margin]]
+    hpad = axis_padding(sp[:yaxis], axis_info[2][:ticks], 90, 1) + [sp[:left_margin], sp[:right_margin]]
+    title_height = text_height(TITLE_TEXT_PAD, titlefont(sp), sp[:title])
     GR.restorestate()
     return (hpad[1], vpad[2] + title_height, hpad[2], vpad[1])
 end
@@ -704,41 +712,76 @@ function draw_spine!(info)
     end
 end
 
-function draw_border!(intensity, info)
-    gr_set_line(intensity, :solid, info[:axis][:foreground_color_border])
+function draw_border!(width, alpha, info)
+    gr_set_line(width, :solid, info[:axis][:foreground_color_border])
+    GR.settransparency(alpha)
     gr_polyline(coords(info[:border_segs])...)
 end
 
-function draw_borders!(sp, axes_info, xmin, xmax, ymin, ymax)
+function draw_border!(sp, axes_info, xmin, xmax, ymin, ymax)
     if sp[:framestyle] in (:box, :semi)
-        intensity = sp[:framestyle] == :semi ? 0.5 : 1.0
-        GR.settransparency(intensity)
-        draw_border!.(intensity, axes_info)
+        draw_border!.(1, sp[:framestyle] == :semi ? 0.5 : 1.0, axes_info)
     end
 end
 
-function draw_ticks_and_labels!(sp, direction, info, other, axis_text_pos)
-    if length(info[:tick_segs]) > 0
-        ticks, axis = info[:ticks], info[:axis]
-        oaxis, omin, omax = other
-        perp = sp[:framestyle] == :origin ? 0 : (xor(oaxis[:flip], axis[:mirror]) ? omax : omin)
+function draw_ticks_and_labels!(sp, direction, info, perp, axis_text_pos)
+    axis = info[:axis]
 
+    if length(info[:tick_segs]) > 0
+        ticks = info[:ticks]
         char_height = gr_char_height(tickfont(axis))
+        tick_label_pad = char_height * (TICK_LABEL_PAD + (axis[:tick_direction] == :out ? TICK_LENGTH : 0))
+        tick_displacement = char_height * (axis[:tick_direction] == :out ? -1 : 1) * TICK_LENGTH
+        kmirror = axis[:mirror] ? -1 : 1
+
         gr_set_axis_font!(axis, direction)
-        place = axis_text_pos(add(char_height * (axis[:mirror] ? 1 : - 1) * (axis[:tick_direction] == :out ? 0.9 : 0.4)))
+        place = axis_text_pos(add(-kmirror * tick_label_pad))
+        tplace1 = axis_text_pos(identity)
+        tplace2 = axis_text_pos(add(kmirror * tick_displacement))
+
         for (cv, dv) in zip(ticks...)
-            gr_text(place((cv, perp))...,
+            pt = (cv, perp)
+            gr_text(place(pt)...,
                     axis[:scale] in (:ln, :log10, :log2) && axis[:ticks] == :auto ? string(dv, "\\ ") : string(dv))
         end
 
-        if sp[:framestyle] in (:zerolines, :grid)
-            gr_set_line(1, :solid, axis[:foreground_color_grid])
-            GR.settransparency(axis[:gridalpha])
-        else
+        if !(sp[:framestyle] in (:zerolines, :grid))
             gr_set_line(1, :solid, axis[:foreground_color_axis])
+            for (cv, dv) in zip(ticks...)
+                pt = (cv, perp)
+                x1, y1 = ndctowc(tplace1(pt))
+                x2, y2 = ndctowc(tplace2(pt))
+                GR.polyline([x1,x2],[y1,y2])
+            end
         end
-        gr_polyline(coords(info[:tick_segs])...)
+            #= gr_set_line(1, :solid, axis[:foreground_color_grid]) =#
+            #= GR.settransparency(axis[:gridalpha]) =#
+
+        GR.selntran(0) 
+        total_height = tick_label_pad + diff(foldl(minmax, gr_text_extrema.(direction==0 ? 2 : 1, ticks[2])))
+        GR.selntran(1)
+        return total_height
+    else
+        return 0
     end
+end
+
+function draw_guide!(direction, axis, lims, perp, axis_text_pos, shift)
+    if axis[:guide] == "" return shift
+    else
+        font = guidefont(axis)
+        char_height = gr_char_height(font)
+        place = axis_text_pos(add((axis[:mirror] ? 1 : - 1) * (shift + TEXT_PAD * char_height)))
+        gr_set_font(font, rotation=direction)
+        GR.settextalign(GR.TEXT_HALIGN_CENTER, trigcat(0, GR.TEXT_VALIGN_BOTTOM, nothing, GR.TEXT_VALIGN_TOP, (axis[:mirror] ? -1 : 1)*cosd(2*direction)))
+        gr_text(place(((lims[1] + lims[2])/2, perp))..., axis[:guide])
+        return shift + (TEXT_PAD + 1)*char_height
+    end
+end
+
+function draw_ticks_and_labels_and_guide!(sp, direction, info, lims, perp, axis_text_pos)
+    shift = draw_ticks_and_labels!(sp, direction, info, perp, axis_text_pos)
+    return draw_guide!(direction, info[:axis], lims, perp, axis_text_pos, shift)
 end
 
 function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
@@ -858,42 +901,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
         GR.setclip(1)
     end
 
-    # add the guides
-    GR.savestate()
-    GR.setclip(0)
-    if sp[:title] != ""
-        gr_set_font(titlefont(sp))
-        loc = sp[:title_location]
-        if loc == :left
-            xpos = viewport_plotarea[1]
-            halign = GR.TEXT_HALIGN_LEFT
-        elseif loc == :right
-            xpos = viewport_plotarea[2]
-            halign = GR.TEXT_HALIGN_RIGHT
-        else
-            xpos = gr_view_xcenter()
-            halign = GR.TEXT_HALIGN_CENTER
-        end
-        GR.settextalign(halign, GR.TEXT_VALIGN_TOP)
-        gr_text(xpos, viewport_subplot[4], sp[:title])
-    end
-
-    if xaxis[:guide] != ""
-        gr_set_font(guidefont(xaxis))
-        GR.settextalign(GR.TEXT_HALIGN_CENTER, GR.TEXT_VALIGN_BOTTOM)
-        gr_text(gr_view_xcenter(), viewport_subplot[3], xaxis[:guide])
-    end
-
-    if yaxis[:guide] != ""
-        gr_set_font(guidefont(yaxis))
-        GR.settextalign(GR.TEXT_HALIGN_CENTER, GR.TEXT_VALIGN_TOP)
-        GR.setcharup(-1, 0)
-        gr_text(viewport_subplot[1], gr_view_ycenter(), yaxis[:guide])
-    end
-    GR.restorestate()
-    GR.setclip(1)
-
-    gr_set_font(tickfont(xaxis)) # !!! what?
+    #= gr_set_font(tickfont(xaxis)) # !!! what? =#
 
     # this needs to be here to point the colormap to the right indices
     GR.setcolormap(1000 + GR.COLORMAP_COOLWARM)
@@ -1161,11 +1169,34 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
     end
 
     if !is3d(sp) && !ispolar(sp) && draw_axes
+        GR.savestate()
         GR.setclip(0)
-        maybe_reverse(mirror, t) = mirror ? reverse(t) : t
-        draw_ticks_and_labels!(sp, 0,  x_info, (yaxis, ymin, ymax), f -> fsnd(f) ∘ wctondc)
-        draw_ticks_and_labels!(sp, 90, y_info, (xaxis, xmin, xmax), f -> ffst(f) ∘ wctondc ∘ swap)
-        draw_borders!(sp, axes_info, xmin, xmax, ymin, ymax)
+        perp(ax,oax,min,max) = xor(oax[:flip], ax[:mirror]) ? max : min
+        perps = sp[:framestyle] == :origin ? (0,0) : (perp(xaxis,yaxis,ymin,ymax), perp(yaxis,xaxis,xmin,xmax))
+        xaxis_height = draw_ticks_and_labels_and_guide!(sp, 0,  x_info, (xmin, xmax), perps[1], f -> fsnd(f) ∘ wctondc)
+        draw_ticks_and_labels_and_guide!(sp, 90, y_info, (ymin, ymax), perps[2], f -> ffst(f) ∘ wctondc ∘ swap)
+        title_shift = if xaxis[:mirror] xaxis_height else 0 end
+        draw_border!(sp, axes_info, xmin, xmax, ymin, ymax)
+
+        if sp[:title] != ""
+            font = titlefont(sp)
+            gr_set_font(font)
+            loc = sp[:title_location]
+            if loc == :left
+                xpos = viewport_plotarea[1]
+                halign = GR.TEXT_HALIGN_LEFT
+            elseif loc == :right
+                xpos = viewport_plotarea[2]
+                halign = GR.TEXT_HALIGN_RIGHT
+            else
+                xpos = (viewport_plotarea[1] + viewport_plotarea[2])/2
+                halign = GR.TEXT_HALIGN_CENTER
+            end
+            GR.settextalign(halign, GR.TEXT_VALIGN_BOTTOM)
+            gr_text(xpos, viewport_plotarea[4] + title_shift + TITLE_TEXT_PAD * gr_char_height(font), sp[:title])
+        end
+
+        GR.restorestate()
         GR.setclip(1)
     end
 
