@@ -1336,43 +1336,70 @@ end
 const _gr_wstype = Ref(get(ENV, "GKSwstype", _gr_wstype_default))
 gr_set_output(wstype::String) = (_gr_wstype[] = wstype)
 
+const gks_state = [false, Dict(), nothing]
+
+function gr_closeall()
+    GR.emergencyclosegks()
+    gks_state[1] = false
+    gks_state[2] = Dict()
+    gks_state[3] = nothing
+end
+
+function with_plot_file(fmt, plt, action)
+    gr_close_all()
+    filepath = tempname() * "." * fmt
+    env = get(ENV, "GKSwstype", "0")
+    ENV["GKSwstype"] = fmt
+    ENV["GKS_FILEPATH"] = filepath
+    gr_display(plt, fmt)
+    gr_close_all()
+
+    action(filepath)
+    rm(filepath)
+    if env != "0"
+        ENV["GKSwstype"] = env
+    else
+        pop!(ENV,"GKSwstype")
+    end
+end
+
 for (mime, fmt) in _gr_mimeformats
     @eval function _show(io::IO, ::MIME{Symbol($mime)}, plt::Plot{GRBackend})
-        GR.emergencyclosegks()
-        filepath = tempname() * "." * $fmt
-        env = get(ENV, "GKSwstype", "0")
-        ENV["GKSwstype"] = $fmt
-        ENV["GKS_FILEPATH"] = filepath
-        gr_display(plt, $fmt)
-        GR.emergencyclosegks()
-        write(io, readstring(filepath))
-        rm(filepath)
-        if env != "0"
-            ENV["GKSwstype"] = env
-        else
-            pop!(ENV,"GKSwstype")
-        end
+        with_plot_file($fmt, plt, filepath -> write(io, readstring(filepath)))
     end
+end
+
+function init_env!()
+    ENV["GKS_DOUBLE_BUF"] = true
+    if _gr_wstype[] != "use_default"
+        ENV["GKSwstype"] = _gr_wstype[]
+    end
+end
+
+function _display(fig, plt::Plot{GRBackend})
+    init_env!()
+    # FIXME min_padding is screwing this up
+    if !gks_state[1] GR.opengks(); gks_state[1]=true; end
+    if gks_state[3] != fig
+        if gks_state[3] != nothing GR.deactivatews(gks_state[3]); end
+        if !haskey(gks_state[2], fig)
+            GR.openws(fig, "ws$fig", 0)
+            gks_state[2][fig] = false
+        end
+        GR.activatews(fig)
+        gks_state[3]=fig
+    end
+
+    gr_display(plt)
 end
 
 function _display(plt::Plot{GRBackend})
     if plt[:display_type] == :inline
-        GR.emergencyclosegks()
-        filepath = tempname() * ".pdf"
-        ENV["GKSwstype"] = "pdf"
-        ENV["GKS_FILEPATH"] = filepath
-        gr_display(plt)
-        GR.emergencyclosegks()
-        content = string("\033]1337;File=inline=1;preserveAspectRatio=0:", base64encode(open(read, filepath)), "\a")
-        println(content)
-        rm(filepath)
+        dump(fp) = println(string("\033]1337;File=inline=1;preserveAspectRatio=0:", base64encode(open(read, fp)), "\a"))
+        with_plot_file("pdf", plt, dump)
     else
-        ENV["GKS_DOUBLE_BUF"] = true
-        if _gr_wstype[] != "use_default"
-            ENV["GKSwstype"] = _gr_wstype[]
-        end
-        gr_display(plt)
+        _display(1, plt)
     end
 end
 
-closeall(::GRBackend) = GR.emergencyclosegks()
+closeall(::GRBackend) = gr_closeall()
