@@ -89,7 +89,7 @@ end
 # ----------------------------------------------------------------
 
 function Base.show(io::IO, ::MIME"text/html", plt::Plot{PlotlyJSBackend})
-    prepare_output(plt)
+    prepare_output(nothing, plt)
     if isijulia() && !_use_remote[]
         write(io, PlotlyJS.html_body(PlotlyJS.JupyterPlot(plt.o)))
     else

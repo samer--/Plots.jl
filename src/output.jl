@@ -134,7 +134,7 @@ Display a plot using the backends' gui window
 gui(plt::Plot = current()) = display(PlotsDisplay(), plt)
 
 function gui(fig::Any, plt::Plot)
-    prepare_output(plt)
+    prepare_output(fig, plt)
     _display(fig, plt)
 end
 
@@ -146,7 +146,7 @@ function inline(plt::Plot = current())
 end
 
 function Base.display(::PlotsDisplay, plt::Plot)
-    prepare_output(plt)
+    prepare_output(nothing, plt)
     _display(plt)
 end
 
@@ -212,7 +212,7 @@ end
 # for writing to io streams... first prepare, then callback
 for mime in keys(_mimeformats)
     @eval function Base.show(io::IO, m::MIME{Symbol($mime)}, plt::Plot{B}) where B
-        prepare_output(plt)
+        prepare_output(nothing, plt)
         _show(io, m, plt)
     end
 end

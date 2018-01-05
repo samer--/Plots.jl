@@ -249,7 +249,7 @@ end
 
 # we're getting ready to display/output.  prep for layout calcs, then update
 # the plot object after
-function prepare_output(plt::Plot)
+function prepare_output(fig::Any, plt::Plot)
     _before_layout_calcs(plt)
 
     w, h = plt.attr[:size]
@@ -257,9 +257,9 @@ function prepare_output(plt::Plot)
 
     # One pass down and back up the tree to compute the minimum padding
     # of the children on the perimeter.  This is an backend callback.
-    _update_min_padding!(plt.layout)
+    _update_min_padding!(fig, plt.layout)
     for sp in plt.inset_subplots
-        _update_min_padding!(sp)
+        _update_min_padding!(fig, sp)
     end
 
     # now another pass down, to update the bounding boxes
@@ -273,7 +273,7 @@ function prepare_output(plt::Plot)
 end
 
 function backend_object(plt::Plot)
-    prepare_output(plt)
+    prepare_output(nothing, plt)
     plt.o
 end
 

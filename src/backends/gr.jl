@@ -92,6 +92,7 @@ function add_backend_string(::GRBackend)
 end
 
 function _initialize_backend(::GRBackend; kw...)
+    ENV["GKS_DOUBLE_BUF"] = true
     @eval begin
         import GR
         export GR
@@ -603,14 +604,6 @@ function gr_display(plt::Plot, fmt="")
     GR.updatews()
 end
 
-function update_env!()
-    if !haskey(ENV, "GKSwstype")
-        if isijulia() || (isdefined(Main, :Juno) && Juno.isactive())
-            ENV["GKSwstype"] = "svg"
-        end
-    end
-end
-
 function gr_set_axis_font!(axis, direction)
     k    = axis[:mirror] ? -1 : 1
     trot = direction + axis[:rotation]
@@ -618,15 +611,6 @@ function gr_set_axis_font!(axis, direction)
                 halign = trigcat(0.1, :left, :hcenter, :right, k*sind(trot)),
                 valign = trigcat(0.2, :bottom, :vcenter, :top, k*cosd(trot)),
                 rotation = axis[:rotation])
-end
-
-# required backend API function
-function _update_min_padding!(sp::Subplot{GRBackend})
-    update_env!() # to allow text measuring functions to work in min_padding
-    ndu = max(gr_plot_size[1], gr_plot_size[2]) * px # normalised device unit
-    (l,t,r,b), sp.o = min_padding(sp, axis_drawing_info(sp))
-    sp.minpad = (l*ndu + sp[:left_margin], t*ndu + sp[:top_margin],
-                 r*ndu + sp[:right_margin], b*ndu + sp[:bottom_margin])
 end
 
 # ----------------- Display function and helpers ----------------------
@@ -769,7 +753,6 @@ function draw_ticks_and_labels_and_guide!(sp, direction, info, lims, perp, axis_
 end
 
 function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
-    update_env!()
     # these are the Axis objects, which hold scale, lims, etc
     x_info, y_info = axis_drawing_info(sp)
     xaxis, yaxis = x_info[:axis], y_info[:axis]
@@ -1308,7 +1291,6 @@ else
 end
 
 const _gr_wstype = Ref(get(ENV, "GKSwstype", _gr_wstype_default))
-gr_set_output(wstype::String) = (_gr_wstype[] = wstype)
 
 const gks_state = [false, Dict(), nothing]
 
@@ -1343,27 +1325,33 @@ for (mime, fmt) in _gr_mimeformats
     end
 end
 
-function init_env!()
-    ENV["GKS_DOUBLE_BUF"] = true
-    if _gr_wstype[] != "use_default"
-        ENV["GKSwstype"] = _gr_wstype[]
+function select_fig!(fig)
+    # FIXME this ENV stuff is well dodgy
+    if !haskey(ENV, "GKSwstype")
+        if isijulia() || (isdefined(Main, :Juno) && Juno.isactive())
+            ENV["GKSwstype"] = "svg"
+        end
+    end
+
+    if !gks_state[1] GR.opengks(); gks_state[1]=true; end
+    if gks_state[3] != fig
+        if !haskey(gks_state[2], fig)
+            GR.openws(fig, "", 0)
+            gks_state[2][fig] = false
+        end
+        GR.activatews(fig)
+        if gks_state[3] != nothing 
+            GR.deactivatews(gks_state[3]); 
+        end
+        gks_state[3]=fig
     end
 end
 
 function _display(fig, plt::Plot{GRBackend})
-    init_env!()
-    # FIXME min_padding is screwing this up
-    if !gks_state[1] GR.opengks(); gks_state[1]=true; end
-    if gks_state[3] != fig
-        if gks_state[3] != nothing GR.deactivatews(gks_state[3]); end
-        if !haskey(gks_state[2], fig)
-            GR.openws(fig, "ws$fig", 0)
-            gks_state[2][fig] = false
-        end
-        GR.activatews(fig)
-        gks_state[3]=fig
+    if _gr_wstype[] != "use_default"
+        ENV["GKSwstype"] = _gr_wstype[]
     end
-
+    select_fig!(fig)
     gr_display(plt)
 end
 
@@ -1374,6 +1362,15 @@ function _display(plt::Plot{GRBackend})
     else
         _display(1, plt)
     end
+end
+
+# required backend API function
+function _update_min_padding!(fig::Any, sp::Subplot{GRBackend})
+    select_fig!(fig == nothing ? 1 : fig)
+    ndu = max(gr_plot_size[1], gr_plot_size[2]) * px # normalised device unit
+    (l,t,r,b), sp.o = min_padding(sp, axis_drawing_info(sp))
+    sp.minpad = (l*ndu + sp[:left_margin], t*ndu + sp[:top_margin],
+                 r*ndu + sp[:right_margin], b*ndu + sp[:bottom_margin])
 end
 
 closeall(::GRBackend) = gr_closeall()

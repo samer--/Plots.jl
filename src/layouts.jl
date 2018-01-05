@@ -306,8 +306,8 @@ bottompad(layout::GridLayout) = layout.minpad[4]
 # to those perimeter children.
 
 # leftpad, toppad, rightpad, bottompad
-function _update_min_padding!(layout::GridLayout)
-    map(_update_min_padding!, layout.grid)
+function _update_min_padding!(fig::Any, layout::GridLayout)
+    map(g -> _update_min_padding!(fig, g), layout.grid)
     layout.minpad = (
         maximum(map(leftpad,   layout.grid[:,1])),
         maximum(map(toppad,    layout.grid[1,:])),

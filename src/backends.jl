@@ -97,6 +97,9 @@ function tick_padding(axis::Axis)
     end
 end
 
+# if 2 args not implemented by backend, fall back to 1 arg version
+_update_min_padding!(fig::Any, sp::Subplot) = _update_min_padding!(sp)
+
 # Set the (left, top, right, bottom) minimum padding around the plot area
 # to fit ticks, tick labels, guides, colorbars, etc.
 function _update_min_padding!(sp::Subplot)
