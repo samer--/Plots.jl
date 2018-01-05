@@ -133,6 +133,11 @@ Display a plot using the backends' gui window
 """
 gui(plt::Plot = current()) = display(PlotsDisplay(), plt)
 
+function gui(fig::Any, plt::Plot)
+    prepare_output(plt)
+    _display(fig, plt)
+end
+
 # IJulia only... inline display
 function inline(plt::Plot = current())
     isijulia() || error("inline() is IJulia-only")
@@ -199,6 +204,9 @@ function _show(io::IO, m, plt::Plot{B}) where B
 end
 function _display(plt::Plot)
     warn("_display is not defined for this backend.")
+end
+function _display(fig::Any, plt::Plot)
+    warn("trgetted _display is not defined for this backend.")
 end
 
 # for writing to io streams... first prepare, then callback
