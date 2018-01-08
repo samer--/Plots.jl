@@ -689,15 +689,24 @@ function draw_spine!(info)
     end
 end
 
-function draw_border!(width, alpha, info)
-    gr_set_line(width, :solid, info[:axis][:foreground_color_border])
-    GR.settransparency(alpha)
-    gr_polyline(coords(info[:border_segs])...)
-end
-
 function draw_border!(sp, axes_info, xmin, xmax, ymin, ymax)
     if sp[:framestyle] in (:box, :semi)
-        draw_border!.(1, sp[:framestyle] == :semi ? 0.5 : 1.0, axes_info)
+        fg = [axes_info[i][:axis][:foreground_color_border] for i in [1,2]]
+        alpha = sp[:framestyle] == :semi ? 0.5 : 1.0
+
+        function draw_border!(color, info)
+            gr_set_line(1, :solid, color)
+            GR.settransparency(alpha)
+            gr_polyline(coords(info[:border_segs])...)
+        end
+
+        if fg[1] == fg[2]
+            gr_set_line(1, :solid, fg[1])
+            GR.settransparency(alpha)
+            GR.drawrect(xmin, xmax, ymin, ymax)
+        else
+            draw_border!.(fg, axes_info)
+        end
     end
 end
 
