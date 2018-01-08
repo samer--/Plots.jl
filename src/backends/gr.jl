@@ -79,8 +79,8 @@ const _gr_marker = _allMarkers
 const _gr_scale = [:identity, :log10]
 is_marker_supported(::GRBackend, shape::Shape) = true
 
-const TICK_LABEL_PAD = 0.5
-const TICK_LENGTH = 0.8
+const TICK_LABEL_PAD = 0.6
+const TICK_LENGTH = 0.6
 const TEXT_PAD = 0.2
 const TITLE_TEXT_PAD = 0.75
 
