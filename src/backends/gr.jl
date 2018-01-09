@@ -347,7 +347,6 @@ end
 function gr_fill_viewport(vp::AVec{Float64}, c)
     GR.savestate()
     GR.selntran(0)
-    GR.setfillintstyle(GR.INTSTYLE_SOLID)
     gr_set_fillcolor(c)
     GR.fillrect(vp...)
     GR.restorestate()
@@ -378,17 +377,15 @@ function gr_draw_marker(xi, yi, msize, shape::Shape)
     GR.selntran(0)
     w, h = gr_plot_size
     f = msize / (w + h) # FIXME this looks wrong
-    xi, yi = GR.wctondc(xi, yi)
-    GR.fillarea(xi .+ sx .* f,
-                yi .+ sy .* f)
+    xi, yi = GR.wctondc(xi, yi) # but we just chose selntran(0) ... ??
+    GR.fillarea(xi + f.*sx, yi + f.*sy)
     GR.selntran(1)
 end
 
 # draw ONE symbol marker
 function gr_draw_marker(xi, yi, msize::Number, shape::Symbol)
     GR.setmarkertype(gr_markertype[shape])
-    w, h = gr_plot_size
-    GR.setmarkersize(0.3msize / ((w + h) * 0.001)) # FIXME this looks wrong
+    GR.setmarkersize(msize)
     GR.polymarker([xi], [yi])
 end
 
@@ -427,10 +424,9 @@ function gr_draw_markers(series::Series, x, y, msize, mz)
 end
 
 function gr_draw_markers(series::Series, x, y, clims)
-    isempty(x) && return
-    mz = normalize_zvals(series[:marker_z], clims) # TODO: check it's ok to have nothing here
-    GR.setfillintstyle(GR.INTSTYLE_SOLID)
-    gr_draw_markers(series, x, y, series[:markersize], mz)
+    if !isempty(x)
+        gr_draw_markers(series, x, y, series[:markersize], normalize_zvals(series[:marker_z], clims))
+    end
 end
 
 # ---------------------------------------------------------
@@ -588,6 +584,7 @@ function gr_display(plt::Plot, fmt="")
         viewport_canvas = Float64[0,ratio,0,1]
     end
 
+    GR.setfillintstyle(GR.INTSTYLE_SOLID) # fill style is ALWAYS solid
     # fill in the viewport_canvas background
     GR.setclip(0)
     gr_fill_viewport(Float64[-5,6,-5,6], plt[:background_color_outside])
@@ -934,7 +931,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
                 end
                 # do area fill
                 if frng != nothing
-                    GR.setfillintstyle(GR.INTSTYLE_SOLID)
+                    #= GR.setfillintstyle(GR.INTSTYLE_SOLID) =#
                     fr_from, fr_to = (is_2tuple(frng) ? frng : (y, frng))
                     for (i, rng) in enumerate(segments_iterator)
                         gr_set_fillcolor(get_fillcolor(sp, series, i))
@@ -1042,7 +1039,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
         # TODO: replace with pie recipe
         elseif st == :pie
             GR.selntran(0)
-            GR.setfillintstyle(GR.INTSTYLE_SOLID)
+            #= GR.setfillintstyle(GR.INTSTYLE_SOLID) =#
             xmin, xmax, ymin, ymax = viewport_plotarea
             ymax -= 0.1 * (xmax - xmin)
             xcenter = 0.5 * (xmin + xmax)
@@ -1098,7 +1095,6 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
 
                     # draw the interior
                     gr_set_fillcolor(get_fillcolor(sp, series, i))
-                    GR.setfillintstyle(GR.INTSTYLE_SOLID)
                     GR.fillarea(xseg, yseg)
 
                     # draw the shapes
@@ -1197,7 +1193,6 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
             dy = 1.75 * gr_char_height(legend_font)
             h = dy*n
             (xpos,ypos) = gr_legend_pos(sp[:legend],w,h)
-            GR.setfillintstyle(GR.INTSTYLE_SOLID)
             gr_set_fillcolor(sp[:background_color_legend])
             GR.fillrect(xpos - 0.08, xpos + w + 0.02, ypos + dy, ypos - dy * n)
             gr_set_line(1, :solid, sp[:foreground_color_legend])
@@ -1217,7 +1212,6 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
 
                 if (st == :shape || series[:fillrange] != nothing) && series[:ribbon] == nothing
                     gr_set_fillcolor(get_fillcolor(sp, series)) #, series[:fillalpha])
-                    GR.setfillintstyle(GR.INTSTYLE_SOLID)
                     l, r = xpos-0.07, xpos-0.01
                     b, t = ypos-0.4dy, ypos+0.4dy
                     x = [l, r, r, l, l]
