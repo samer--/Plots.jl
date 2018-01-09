@@ -232,7 +232,7 @@ end
 # return (continuous_values, discrete_values) for the ticks on this axis
 function get_ticks(axis::Axis)
     ticks = _transform_ticks(axis[:ticks])
-    ticks in (nothing, false) && return nothing
+    if ticks in (nothing, false) return nothing; end
 
     dvals = axis[:discrete_values]
     cv, dv = if !isempty(dvals) && ticks == :auto
@@ -530,14 +530,16 @@ function axis_info(sp, axis_pi, oaxis_pi, psi)
     axis, (min, max), ticks = axis_pi # this axis
     oaxis, (omin, omax), _ = oaxis_pi # the other axis
     flipped = xor(axis[:mirror], oaxis[:flip])
-    ticks1 = if axis[:showaxis] && sp[:framestyle] == :origin && length(ticks) > 1
+    ticks1 = if ticks == nothing
+                ([],[])
+             elseif sp[:framestyle] == :origin
                 # don't show the 0 tick label for the origin framestyle
                 showticks = ticks[1] .!= 0
                 (ticks[1][showticks], ticks[2][showticks])
              else
-                ticks # !!! even if not showing axis?
+                ticks
              end
-
+    ticks_exist = length(ticks1[1]) > 0 
     phi(f) = psi(vcat(map(f, ticks1[1])...))
 
     function spine_segs()
@@ -555,8 +557,8 @@ function axis_info(sp, axis_pi, oaxis_pi, psi)
 
     Dict(:axis => axis, :ticks => ticks1,
          :spine_segs  => if (axis[:showaxis] && sp[:framestyle] in [:axes, :origin, :zerolines]) spine_segs() else null end,
-         :tick_segs   => if (axis[:showaxis] && !(axis[:ticks] in (:none, nothing, false))) tick_segs() else null end,
-         :grid_segs   => if (sp[:framestyle] != :none && axis[:grid] && !(axis[:ticks] in (nothing, false)))
+         :tick_segs   => if (axis[:showaxis] && ticks_exist) tick_segs() else null end,
+         :grid_segs   => if (sp[:framestyle] != :none && axis[:grid] && ticks_exist)
                             phi(t->[t omin; t omax; NaN NaN])
                          else null end,
          :border_segs => if (axis[:showaxis] && sp[:framestyle] in [:semi,:box])
