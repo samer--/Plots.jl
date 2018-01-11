@@ -378,63 +378,83 @@ gr_alpha(α::Real) = α
 
 # ---------------------------------------------------------
 
-# draw ONE symbol marker
-function gr_marker(x, y, mt, ci)
-    GR.setmarkercolorind(ci)
-    GR.setmarkertype(mt)
-    GR.polymarker([x], [y])
-end
-
-
 # draw the markers, one at a time
 function gr_draw_markers(series::Series, x, y, msize, mz)
+    function gradient_ind!(i)
+        ci = round(Int, 1000 + _cycle(mz, i) * 255)
+        GR.settransparency(_gr_gradient_alpha[ci-999])
+        return ci
+    end
+
+    strokewidth = series[:markerstrokewidth]
+    strokealpha = get(series, :markerstrokealpha, 1)
+    fillalpha = get(series, :markeralpha, 1)
+    stroking = strokewidth > 0 && strokealpha > 0
+    filling  = fillalpha > 0
+    strokecolorind(i) = gr_getcolorind(_cycle(series[:markerstrokecolor], i))
+    fillcolorind! = if mz!=nothing gradient_ind!
+                    else (i->gr_getcolorind(_cycle(series[:markercolor], i)))
+                    end
+
+    function marker(x, y, mt, sz, ci)
+        GR.setmarkersize(sz)
+        GR.setmarkercolorind(ci)
+        GR.setmarkertype(mt)
+        GR.polymarker([x], [y])
+    end
+
+    # could memoise symbol render by shape
+    function draw_symbol(shape::Symbol, msi, i)
+        filled = get(gr_marker_as_fill, shape, nothing)
+        hollow = get(gr_marker_as_stroke, shape, nothing)
+
+        if filling && !stroking && filled != nothing
+            marker(x[i], y[i], filled, msi, fillcolorind!(i))
+        elseif !filling && stroking && hollow != nothing
+            marker(x[i], y[i], hollow, msi, strokecolorind(i))
+        elseif filling && stroking && filled != nothing && fillalpha >= 0.75
+            marker(x[i], y[i], filled, msi + strokewidth, strokecolorind(i))
+            marker(x[i], y[i], filled, msi - strokewidth, fillcolorind!(i))
+        elseif filling && stroking && filled != nothing && hollow != nothing # strokewidth fixed relative to marker size!
+            marker(x[i], y[i], filled, msi, fillcolorind!(i))
+            marker(x[i], y[i], hollow, msi, strokecolorind(i)) # transparent stroke leaves fill edge visibile
+        else
+            warn("GR cannot satisfy marker attributes: $shape, fill=($fillalpha, $filled), stroke=($strokewidth, $strokealpha, $hollow)")
+         end
+    end
+
     shapes = series[:markershape]
-    if shapes != :none
-        stroking = series[:markerstrokewidth] > 0 && get(series, :markerstrokealpha, 1) > 0
+    if shapes != :none && (stroking || filling)
+        all_shapes = map(i->_cycle(shapes, i), 1:length(x))
+        types = typeof.(all_shapes)
+        i_symbols = find(types .== Symbol)
+        i_shapes  = find(types .== Shape)
 
-        # FIXME make this nicer
-        for i=1:length(x)
-            msi = _cycle(msize, i)
-            shape = _cycle(shapes, i)
+        for i in i_symbols
+            draw_symbol(all_shapes[i], _cycle(msize, i), i)
+        end
 
-            if isa(shape, Shape)
-                xs, ys = GR.wctondc(x[i], y[i]) .+ gr_pt_to_ndu(msi/2).*coords(shape)
-                GR.selntran(0)
-                if get(series, :markeralpha, 1) > 0
-                    if mz == nothing
-                        gr_set_fillcolor(_cycle(series[:markercolor], i))
-                        GR.fillarea(xs, ys)
-                    else
-                        # pick a color from the pre-loaded gradient
-                        ci = round(Int, 1000 + _cycle(mz, i) * 255)
-                        GR.setfillcolorind(ci)
-                        GR.settransparency(_gr_gradient_alpha[ci-999])
-                        GR.fillarea(xs, ys)
-                    end
+        if length(i_shapes) > 0
+            ndcpts = GR.wctondc.(x[i_shapes], y[i_shapes])
+            GR.savestate()
+            GR.setwindow(viewport_plotarea...)
+            GR.setviewport(viewport_plotarea...)
+            if stroking
+                GR.setlinewidth(strokewidth)
+                GR.setlinetype(1)
+            end
+            for i in i_shapes
+                xs, ys = ndcpts[i] .+ gr_pt_to_ndu(_cycle(msize, i)/2).*coords(all_shapes[i])
+                if filling
+                    GR.setfillcolorind(fillcolorind!(i))
+                    GR.fillarea(xs, ys)
                 end
-                if stroking
-                    gr_set_line(series[:markerstrokewidth], :solid, _cycle(series[:markerstrokecolor], i))
-                    GR.polyline(xs,ys)
-                end
-                GR.selntran(1)
-            else
-                GR.setmarkersize(msi)
-                filled = get(gr_marker_as_fill, shape, nothing)
-                hollow = get(gr_marker_as_stroke, shape, nothing)
-                if get(series, :markeralpha, 1) > 0 && filled != nothing # means shape has an interior
-                    if mz == nothing
-                        gr_marker(x[i], y[i], filled, gr_getcolorind(_cycle(series[:markercolor], i)))
-                    else
-                        # pick a color from the pre-loaded gradient
-                        ci = round(Int, 1000 + _cycle(mz, i) * 255)
-                        GR.settransparency(a) = _gr_gradient_alpha[ci-999]
-                        gr_marker(x[i], y[i], filled, ci)
-                    end
-                end
-                if stroking
-                    gr_marker(x[i], y[i], hollow, gr_getcolorind(_cycle(series[:markerstrokecolor], i)))
+                if stroking # NB transparent stroke leaves fill edge visible!
+                    GR.setlinecolorind(strokecolorind(i))
+                    GR.polyline(xs, ys)
                 end
             end
+            GR.restorestate()
         end
     end
 end
@@ -500,16 +520,6 @@ function gr_set_viewport_cmap(sp::Subplot)
     )
 end
 
-# reset the viewport to the plot area
-function gr_set_viewport_plotarea()
-    GR.setviewport(
-        viewport_plotarea[1],
-        viewport_plotarea[2],
-        viewport_plotarea[3],
-        viewport_plotarea[4]
-    )
-end
-
 function gr_set_viewport_polar()
     xmin, xmax, ymin, ymax = viewport_plotarea
     ymax -= 0.05 * (xmax - xmin)
@@ -532,7 +542,7 @@ function gr_colorbar(sp::Subplot, clims)
     GR.cellarray(xmin, xmax, clims[2], clims[1], 1, length(l), l)
     ztick = 0.5 * GR.tick(clims[1], clims[2])
     GR.axes(0, ztick, xmax, clims[1], 0, 1, 0.005)
-    gr_set_viewport_plotarea()
+    GR.setviewport(viewport_plotarea...)
 end
 
 function gr_legend_pos(s::Symbol,w,h)
@@ -800,7 +810,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
     end
 
     # set our plot area view
-    gr_set_viewport_plotarea()
+    GR.setviewport(viewport_plotarea...)
 
     # set the scale flags and window
     xmin, xmax, ymin, ymax = data_lims
@@ -970,7 +980,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
                 GR.cellarray(xmin, xmax, zmax, zmin, 1, length(l), l)
                 ztick = 0.5 * GR.tick(zmin, zmax)
                 GR.axes(0, ztick, xmax, zmin, 0, 1, 0.005)
-                gr_set_viewport_plotarea()
+                GR.setviewport(viewport_plotarea...)
             end
 
         elseif st in [:surface, :wireframe]
@@ -1217,7 +1227,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
                 end
 
                 if series[:markershape] != :none
-                    gr_draw_markers(series, xpos - .035, ypos, sp[:legendfontsize], nothing)
+                    gr_draw_markers(series, [xpos - .035], [ypos], sp[:legendfontsize], nothing)
                 end
 
                 if typeof(series[:label]) <: Array
