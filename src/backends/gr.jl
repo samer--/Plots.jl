@@ -589,6 +589,7 @@ function gr_display(plt::Plot, fmt="")
     GR.setclip(0)
     gr_fill_viewport(Float64[-5,6,-5,6], plt[:background_color_outside])
     GR.setclip(1)
+    GR.selntran(1)
 
     for sp in plt.subplots
         gr_display(sp, w_in_m*metre, h_in_m*metre, wswindow)
