@@ -306,8 +306,8 @@ bottompad(layout::GridLayout) = layout.minpad[4]
 # to those perimeter children.
 
 # leftpad, toppad, rightpad, bottompad
-function _update_min_padding!(fig::Any, layout::GridLayout)
-    map(g -> _update_min_padding!(fig, g), layout.grid)
+function _update_min_padding!(layout::GridLayout)
+    map(g -> _update_min_padding!(g), layout.grid)
     layout.minpad = (
         maximum(map(leftpad,   layout.grid[:,1])),
         maximum(map(toppad,    layout.grid[1,:])),
@@ -788,7 +788,7 @@ end
 
 "Adds a new, empty subplot overlayed on top of `sp`, with a mirrored y-axis and linked x-axis."
 function twinx(sp::Subplot)
-    sp[:right_margin] = max(sp[:right_margin], 30px)
+    sp[:right_margin] = max(sp[:right_margin], 30px) # FIXME what's this 30px for?
     plot!(sp.plt, inset = (sp[:subplot_index], bbox(0,0,1,1)))
     twinsp = sp.plt.subplots[end]
     twinsp[:yaxis][:mirror] = true

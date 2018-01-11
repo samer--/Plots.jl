@@ -50,6 +50,8 @@ _series_added(plt::Plot, series::Series) = nothing
 _series_updated(plt::Plot, series::Series) = nothing
 
 _before_layout_calcs(plt::Plot) = nothing
+_before_layout_calcs(fig::Void, plt::Plot) = _before_layout_calcs(plt)
+_before_layout_calcs(fig::Any, plt::Plot) = warn("Targetted display not supported by this backend")
 
 title_padding(sp::Subplot) = sp[:title] == "" ? 0mm : sp[:titlefontsize] * pt
 guide_padding(axis::Axis) = axis[:guide] == "" ? 0mm : axis[:guidefontsize] * pt
@@ -96,9 +98,6 @@ function tick_padding(axis::Axis)
         text_size(longest_label, axis[:tickfontsize], rot)[2]
     end
 end
-
-# if 2 args not implemented by backend, fall back to 1 arg version
-_update_min_padding!(fig::Any, sp::Subplot) = _update_min_padding!(sp)
 
 # Set the (left, top, right, bottom) minimum padding around the plot area
 # to fit ticks, tick labels, guides, colorbars, etc.

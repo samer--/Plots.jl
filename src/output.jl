@@ -135,7 +135,7 @@ gui(plt::Plot = current()) = display(PlotsDisplay(), plt)
 
 function gui(fig::Any, plt::Plot)
     prepare_output(fig, plt)
-    _display(fig, plt)
+    _display(plt)
 end
 
 # IJulia only... inline display
@@ -205,9 +205,9 @@ end
 function _display(plt::Plot)
     warn("_display is not defined for this backend.")
 end
-function _display(fig::Any, plt::Plot)
-    warn("trgetted _display is not defined for this backend.")
-end
+#= function _display(fig::Any, plt::Plot) =#
+#=     warn("targetted _display is not defined for this backend.") =#
+#= end =#
 
 # for writing to io streams... first prepare, then callback
 for mime in keys(_mimeformats)
