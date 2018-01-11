@@ -730,8 +730,7 @@ function draw_ticks_and_labels!(sp, direction, info, perp, axis_text_pos)
                     dv = convert_sci_unicode(dv)
                 end
             end
-            gr_text(place((cv, perp))...,
-                    axis[:scale] in (:ln, :log10, :log2) && axis[:ticks] == :auto ? string(dv, "\\ ") : string(dv))
+            gr_text(place((cv, perp))..., string(dv))
         end
 
         if !(sp[:framestyle] in (:zerolines, :grid))
