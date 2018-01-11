@@ -74,15 +74,18 @@ const _gr_seriestype = [
     :contour, :path3d, :scatter3d, :surface, :wireframe,
     :shape
 ]
+
+const metre = 1000mm
 const _gr_style = [:auto, :solid, :dash, :dot, :dashdot, :dashdotdot]
 const _gr_marker = _allMarkers
 const _gr_scale = [:identity, :log10]
 is_marker_supported(::GRBackend, shape::Shape) = true
 
-const TICK_LABEL_PAD = 0.6
+const M_PER_PT = 0.0254/72
 const TICK_LENGTH = 0.6
-const TEXT_PAD = 0.2
-const TITLE_TEXT_PAD = 0.75
+const TICK_LABEL_PAD = 0.5 #0.6
+const TEXT_PAD       = 0.2
+const TITLE_TEXT_PAD = 0.5 #0.75
 
 function add_backend_string(::GRBackend)
     """
@@ -175,7 +178,7 @@ gr_text_extrema(dim, dv) = extrema(gr_inqtext(0, 0, string(dv))[dim])
 # mutable state
 
 # this stores the conversion from a font pointsize to "percentage of window height" (which is what GR uses)
-const _gr_point_mult = 0.0018 * ones(1)
+const _ndu_in_m = [1.0]
 
 # this stays constant for a given subplot while displaying that subplot.
 # values are [xmin, xmax, ymin, ymax].  they range [0,1].
@@ -196,8 +199,8 @@ function gr_set_gradient(c)
     grad
 end
 
-function gr_char_height(f) _gr_point_mult[1] * f.pointsize end
-
+gr_pt_to_ndu(x) = M_PER_PT * x / _ndu_in_m[1]
+gr_char_height(f) = gr_pt_to_ndu(f.pointsize)
 
 # draw line segments, splitting x/y into contiguous/finite segments
 # note: this can be used for shapes by passing func `GR.fillarea`
@@ -433,13 +436,12 @@ end
 
 function gr_set_line(lw, style, c) #, a)
     GR.setlinetype(gr_linetype[style])
-    w, h = gr_plot_size
-    GR.setlinewidth(max(0, lw)) # / ((w + h) * 0.001)))
+    GR.setlinewidth(max(0, lw))
     GR.setlinecolorind(gr_getcolorind(_cycle(c,1)))
 end
 
 
-# set the font attributes... assumes _gr_point_mult has been populated already
+# set the font attributes... assumes _ndu_in_m has been populated already
 function gr_set_font(f::Font; halign = f.halign, valign = f.valign,
                               color = f.color, rotation = f.rotation)
     family = lowercase(f.family)
@@ -552,52 +554,22 @@ end
 
 # this is our new display func... set up the viewport_canvas, compute bounding boxes, and display each subplot
 function gr_display(plt::Plot, fmt="")
+    px_in_m = gr_pixel_size()
+    dpi_factor = 1 # conceptually broken. haskey(ENV, "PLOTS_TEST") ? 1 : (plt[:dpi] / DPI)*(fmt=="png" ? 6 : 1)
+    w_in_m, h_in_m = dpi_factor .* plt[:size] .* px_in_m
+    _ndu_in_m[1], wswindow = h_in_m > w_in_m ?  (h_in_m, [0, w_in_m/h_in_m, 0, 1]) : (w_in_m, [0, 1, 0, h_in_m/w_in_m])
+
     GR.clearws()
-
-    # collect some monitor/display sizes in meters and pixels
-    display_width_meters, display_height_meters, display_width_px, display_height_px = GR.inqdspsize()
-    display_width_ratio = display_width_meters / display_width_px
-    display_height_ratio = display_height_meters / display_height_px
-
-    # compute the viewport_canvas, normalized to the larger dimension
-    w, h = plt[:size]
-    if !haskey(ENV, "PLOTS_TEST")
-        dpi_factor = plt[:dpi] / DPI
-        if fmt == "png"
-            dpi_factor *= 6
-        end
-    else
-        dpi_factor = 1
-    end
-    gr_plot_size[:] = [w, h]
-    if w > h
-        ratio = float(h) / w
-        msize = display_width_ratio * w * dpi_factor
-        GR.setwsviewport(0, msize, 0, msize * ratio)
-        GR.setwswindow(0, 1, 0, ratio)
-        viewport_canvas = Float64[0,1,0,ratio]
-    else
-        ratio = float(w) / h
-        msize = display_height_ratio * h * dpi_factor
-        GR.setwsviewport(0, msize * ratio, 0, msize)
-        GR.setwswindow(0, ratio, 0, 1)
-        viewport_canvas = Float64[0,ratio,0,1]
-    end
-
-    GR.setfillintstyle(GR.INTSTYLE_SOLID) # fill style is ALWAYS solid
-    # fill in the viewport_canvas background
+    GR.setwsviewport(0, w_in_m, 0, h_in_m)
+    GR.setwswindow(wswindow...)
+    GR.setfillintstyle(GR.INTSTYLE_SOLID)
     GR.setclip(0)
     gr_fill_viewport(Float64[-5,6,-5,6], plt[:background_color_outside])
     GR.setclip(1)
 
-    # update point mult
-    _gr_point_mult[1] = (px/pt) / max(h,w)
-
-    # subplots:
     for sp in plt.subplots
-        gr_display(sp, w*px, h*px, viewport_canvas)
+        gr_display(sp, w_in_m*metre, h_in_m*metre, wswindow)
     end
-
     GR.updatews()
 end
 
@@ -628,7 +600,7 @@ function min_padding(sp::Subplot{GRBackend}, axis_info)
             pad = (char_height * (TICK_LABEL_PAD + (axis[:tick_direction] == :out ? TICK_LENGTH : 0))
                    + diff(foldl(minmax, gr_text_extrema.(dim, ticks[2]))))
         end
-        return (axis[:mirror] ?  [0, pad1 + pad] : [pad1 + pad, 0]), pad
+        return (axis[:mirror] ?  [0, pad1 + pad] : [pad1 + pad, 0]), (axis[:letter] => pad)
     end
 
     GR.savestate()
@@ -637,7 +609,7 @@ function min_padding(sp::Subplot{GRBackend}, axis_info)
     hpads, hshift = axis_padding(sp[:yaxis], axis_info[2][:ticks], 90, 1)
     title_height = text_height(TITLE_TEXT_PAD, titlefont(sp), sp[:title])
     GR.restorestate()
-    return (hpads[1], vpads[2]+title_height, hpads[2], vpads[1]), Dict(:hshift => hshift, :vshift => vshift)
+    return (hpads[1], vpads[2]+title_height, hpads[2], vpads[1]), Dict(hshift, vshift)
 end
 
 function draw_3d_axes!(viewport_plotarea, xmin, xmax, ymin, ymax, sp)
@@ -737,7 +709,7 @@ function draw_ticks_and_labels!(sp, direction, info, perp, axis_text_pos)
             end
         end
     end
-    return sp.o[:vshift]
+    return sp.o[axis[:letter]] / _ndu_in_m[1]
 end
 
 function draw_guide!(direction, axis, lims, perp, axis_text_pos, shift)
@@ -972,7 +944,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
                 GR.surface(x, y, z, GR.OPTION_CELL_ARRAY)
             else
                 GR.setlinetype(gr_linetype[series[:linestyle]])
-                GR.setlinewidth(max(0, series[:linewidth] / (sum(gr_plot_size) * 0.001)))
+                GR.setlinewidth(max(0, series[:linewidth]))
                 GR.contour(x, y, h, z, 1000)
             end
 
@@ -1343,19 +1315,11 @@ function select_fig!(fig)
             gks_state[2][fig] = false
         end
         GR.activatews(fig)
-        if gks_state[3] != nothing 
-            GR.deactivatews(gks_state[3]); 
+        if gks_state[3] != nothing
+            GR.deactivatews(gks_state[3]);
         end
         gks_state[3]=fig
     end
-end
-
-function _display(fig, plt::Plot{GRBackend})
-    if _gr_wstype[] != "use_default"
-        ENV["GKSwstype"] = _gr_wstype[]
-    end
-    select_fig!(fig)
-    gr_display(plt)
 end
 
 function _display(plt::Plot{GRBackend})
@@ -1363,14 +1327,26 @@ function _display(plt::Plot{GRBackend})
         dump(fp) = println(string("\033]1337;File=inline=1;preserveAspectRatio=0:", base64encode(open(read, fp)), "\a"))
         with_plot_file("pdf", plt, dump)
     else
-        _display(1, plt)
+        if _gr_wstype[] != "use_default"
+            ENV["GKSwstype"] = _gr_wstype[]
+        end
+        gr_display(plt)
     end
 end
 
-# required backend API function
-function _update_min_padding!(fig::Any, sp::Subplot{GRBackend})
+function gr_pixel_size()
+    w_in_m, h_in_m, w_in_px, h_in_px = GR.inqdspsize()
+    w_in_m/w_in_px, h_in_m/h_in_px
+end
+
+function _before_layout_calcs(fig::Any, plt::Plot{GRBackend})
     select_fig!(fig == nothing ? 1 : fig)
-    ndu = max(gr_plot_size[1], gr_plot_size[2]) * px # normalised device unit
+    return Dict(:px => gr_pixel_size().* metre)
+end
+
+# required backend API function
+function _update_min_padding!(sp::Subplot{GRBackend})
+    _ndu_in_m[1] = 1; ndu = metre # looks dodgy but is correct - ndu cancels out
     (l,t,r,b), sp.o = min_padding(sp, axis_drawing_info(sp))
     sp.minpad = (l*ndu + sp[:left_margin], t*ndu + sp[:top_margin],
                  r*ndu + sp[:right_margin], b*ndu + sp[:bottom_margin])
