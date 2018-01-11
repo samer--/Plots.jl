@@ -259,7 +259,7 @@ function plotly_axis(axis::Axis, sp::Subplot)
     ax[:tickangle] = -axis[:rotation]
     lims = axis_limits(axis)
     ax[:range] = map(scalefunc(axis[:scale]), lims)
-    
+
     if !(axis[:ticks] in (nothing, :none))
         ax[:titlefont] = plotly_font(guidefont(axis))
         ax[:type] = plotly_scale(axis[:scale])
@@ -289,7 +289,7 @@ function plotly_axis(axis::Axis, sp::Subplot)
         ax[:showgrid] = false
     end
 
-    
+
     ax
 end
 
@@ -430,7 +430,7 @@ end
 
 
 function plotly_colorscale(grad::ColorGradient, α)
-    [[grad.values[i], rgb_string(grad.colors[i])] for i in 1:length(grad.colors)]
+    [[grad.values[i], rgba_string(plot_color(grad.colors[i], α))] for i in 1:length(grad.colors)]
 end
 plotly_colorscale(c, α) = plotly_colorscale(cgrad(alpha=α), α)
 # plotly_colorscale(c, alpha = nothing) = plotly_colorscale(cgrad(), alpha)
@@ -542,7 +542,7 @@ function plotly_series(plt::Plot, series::Series)
             y, x, "h"
         end
         d_out[:width] = series[:bar_width]
-        d_out[:marker] = KW(:color => rgba_string(series[:fillcolor]),
+        d_out[:marker] = KW(:color => _cycle(rgba_string.(series[:fillcolor]),eachindex(series[:x])),
                             :line => KW(:width => series[:linewidth]))
 
     elseif st == :heatmap
@@ -610,14 +610,14 @@ function plotly_series(plt::Plot, series::Series)
             :size => 2 * series[:markersize],
             # :color => rgba_string(series[:markercolor]),
             :line => KW(
-                :color => rgba_string(series[:markerstrokecolor]),
+                :color => _cycle(rgba_string.(series[:markerstrokecolor]),eachindex(series[:x])),
                 :width => series[:markerstrokewidth],
             ),
         )
 
         # gotta hack this (for now?) since plotly can't handle rgba values inside the gradient
         if series[:marker_z] == nothing
-            d_out[:marker][:color] = rgba_string(series[:markercolor])
+            d_out[:marker][:color] = _cycle(rgba_string.(series[:markercolor]),eachindex(series[:x]))
         else
             # grad = ColorGradient(series[:markercolor], alpha=series[:markeralpha])
             # grad = as_gradient(series[:markercolor], series[:markeralpha])

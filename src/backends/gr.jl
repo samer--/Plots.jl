@@ -254,7 +254,7 @@ gr_inqtext(x, y, s::Symbol) = gr_inqtext(x, y, string(s))
 function gr_inqtext(x, y, s)
     if length(s) >= 2 && s[1] == '$' && s[end] == '$'
         GR.inqtextext(x, y, s[2:end-1])
-    elseif search(s, '\\') != 0
+    elseif search(s, '\\') != 0 || contains(s, "10^{")
         GR.inqtextext(x, y, s)
     else
         GR.inqtext(x, y, s)
@@ -266,7 +266,7 @@ gr_text(x, y, s::Symbol) = gr_text(x, y, string(s))
 function gr_text(x, y, s)
     if length(s) >= 2 && s[1] == '$' && s[end] == '$'
         GR.mathtex(x, y, s[2:end-1])
-    elseif search(s, '\\') != 0
+    elseif search(s, '\\') != 0 || contains(s, "10^{")
         GR.textext(x, y, s)
     else
         GR.text(x, y, s)
@@ -284,6 +284,9 @@ function gr_polaraxes(rlims, sp::Subplot)
     sinf = sind.(a)
     cosf = cosd.(a)
     rtick_values, rtick_labels = get_ticks(yaxis)
+    if yaxis[:formatter] == :scientific && yaxis[:ticks] == :auto
+        rtick_labels = convert_sci_unicode(rtick_labels)
+    end
 
     #draw angular grid
     if xaxis[:grid]
@@ -719,6 +722,14 @@ function draw_ticks_and_labels!(sp, direction, info, perp, axis_text_pos)
         tplace2 = axis_text_pos(add(kmirror * tick_displacement))
 
         for (cv, dv) in zip(ticks...)
+            if axis[:ticks] == :auto
+                # ensure correct dispatch in gr_text for automatic log ticks
+                if axis[:scale] in _logScales
+                    dv = string(dv, "\\ ")
+                elseif axis[:formatter] == :scientific
+                    dv = convert_sci_unicode(dv)
+                end
+            end
             gr_text(place((cv, perp))...,
                     axis[:scale] in (:ln, :log10, :log2) && axis[:ticks] == :auto ? string(dv, "\\ ") : string(dv))
         end
@@ -1001,7 +1012,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
             zmin, zmax = clims
             GR.setspace(zmin, zmax, 0, 90)
             grad = isa(series[:fillcolor], ColorGradient) ? series[:fillcolor] : cgrad()
-            colors = [grad[clamp((zi-zmin) / (zmax-zmin), 0, 1)] for zi=z]
+            colors = [plot_color(grad[clamp((zi-zmin) / (zmax-zmin), 0, 1)], series[:fillalpha]) for zi=z]
             rgba = map(c -> UInt32( round(Int, alpha(c) * 255) << 24 +
                                     round(Int,  blue(c) * 255) << 16 +
                                     round(Int, green(c) * 255) << 8  +
