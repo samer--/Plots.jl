@@ -180,7 +180,6 @@ end
 
 gr_set_fillcolor(c)   = GR.setfillcolorind(gr_getcolorind(_cycle(c,1)))
 gr_set_textcolor(c)   = GR.settextcolorind(gr_getcolorind(_cycle(c,1)))
-gr_text_extrema(dim, dv) = extrema(gr_inqtext(0, 0, string(dv))[dim])
 # --------------------------------------------------------------------------------------
 
 # mutable state
@@ -206,6 +205,14 @@ end
 
 gr_pt_to_ndu(x) = M_PER_PT * x / _ndu_in_m[1]
 gr_char_height(f) = gr_pt_to_ndu(f.pointsize)
+
+function gr_tick_label_formatter(axis)
+    return ( axis[:ticks] != :auto ? string
+           : ( axis[:scale] in _logScales      ? (dv -> string(dv, "\\ "))
+           : axis[:formatter] == :scientific ? convert_sci_unicode
+           : string
+           ))
+end
 
 # draw line segments, splitting x/y into contiguous/finite segments
 # note: this can be used for shapes by passing func `GR.fillarea`
@@ -622,10 +629,12 @@ function min_padding(sp::Subplot{GRBackend}, axis_info)
         if (ticks in (nothing, false) || length(ticks[2])==0)
             pad = 0
         else
+            to_string = gr_tick_label_formatter(axis)
+            text_extrema(dim, dv) = extrema(gr_inqtext(0, 0, to_string(dv))[dim])
             gr_set_axis_font!(axis, direction)
             char_height = gr_char_height(tickfont(axis))
             pad = (char_height * (TICK_LABEL_PAD + (axis[:tick_direction] == :out ? TICK_LENGTH : 0))
-                   + diff(foldl(minmax, gr_text_extrema.(dim, ticks[2])))) # FIXME - handle log scales and scientific formatting
+                   + diff(foldl(minmax, text_extrema.(dim, ticks[2]))))
         end
         return (axis[:mirror] ?  [0, pad1 + pad] : [pad1 + pad, 0]), (axis[:letter] => pad)
     end
@@ -721,12 +730,7 @@ function draw_ticks_and_labels!(sp, direction, info, perp, axis_text_pos)
         tplace1 = axis_text_pos(identity)
         tplace2 = axis_text_pos(add(kmirror * tick_displacement))
 
-        to_string = ( axis[:ticks] != :auto ? string
-                    : ( axis[:scale] in _logScales      ? (dv -> string(dv, "\\ "))
-                      : axis[:formatter] == :scientific ? convert_sci_unicode
-                      : string
-                      ))
-
+        to_string = gr_tick_label_formatter(axis)
         for (cv, dv) in zip(ticks...)
             gr_text(place((cv, perp))..., to_string(dv))
         end
