@@ -16,6 +16,7 @@ swap(p) = (p[2], p[1])
 trace(l,x) = (println((l,x)); x)
 minmax(a,b) = (min(a[1],b[1]), max(a[2],b[2]))
 trigcat(th,a,b,c,t) = t<-th ? a : (t<=th ? b : c)
+if_nothing_else(a,x) = if x==nothing a else x end
 
 wctondc(p) = GR.wctondc(p[1],p[2])
 ndctowc(p) = GR.ndctowc(p[1],p[2])
@@ -397,8 +398,8 @@ function gr_draw_markers(series::Series, x, y, msize, mz)
     end
 
     strokewidth = series[:markerstrokewidth]
-    strokealpha = get(series, :markerstrokealpha, 1)
-    fillalpha = get(series, :markeralpha, 1)
+    strokealpha = if_nothing_else(1, series[:markerstrokealpha])
+    fillalpha = if_nothing_else(1, series[:markeralpha])
     stroking = strokewidth > 0 && strokealpha > 0
     filling  = fillalpha > 0
     strokecolorind(i) = gr_getcolorind(_cycle(series[:markerstrokecolor], i))
