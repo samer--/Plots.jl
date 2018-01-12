@@ -625,7 +625,7 @@ function min_padding(sp::Subplot{GRBackend}, axis_info)
             gr_set_axis_font!(axis, direction)
             char_height = gr_char_height(tickfont(axis))
             pad = (char_height * (TICK_LABEL_PAD + (axis[:tick_direction] == :out ? TICK_LENGTH : 0))
-                   + diff(foldl(minmax, gr_text_extrema.(dim, ticks[2]))))
+                   + diff(foldl(minmax, gr_text_extrema.(dim, ticks[2])))) # FIXME - handle log scales and scientific formatting
         end
         return (axis[:mirror] ?  [0, pad1 + pad] : [pad1 + pad, 0]), (axis[:letter] => pad)
     end
@@ -721,16 +721,14 @@ function draw_ticks_and_labels!(sp, direction, info, perp, axis_text_pos)
         tplace1 = axis_text_pos(identity)
         tplace2 = axis_text_pos(add(kmirror * tick_displacement))
 
+        to_string = ( axis[:ticks] != :auto ? string
+                    : ( axis[:scale] in _logScales      ? (dv -> string(dv, "\\ "))
+                      : axis[:formatter] == :scientific ? convert_sci_unicode
+                      : string
+                      ))
+
         for (cv, dv) in zip(ticks...)
-            if axis[:ticks] == :auto
-                # ensure correct dispatch in gr_text for automatic log ticks
-                if axis[:scale] in _logScales
-                    dv = string(dv, "\\ ")
-                elseif axis[:formatter] == :scientific
-                    dv = convert_sci_unicode(dv)
-                end
-            end
-            gr_text(place((cv, perp))..., string(dv))
+            gr_text(place((cv, perp))..., to_string(dv))
         end
 
         if !(sp[:framestyle] in (:zerolines, :grid))
