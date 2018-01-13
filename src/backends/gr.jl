@@ -596,6 +596,7 @@ function gr_display(plt::Plot, fmt="")
     _ndu_in_m[1], wswindow = h_in_m > w_in_m ?  (h_in_m, [0, w_in_m/h_in_m, 0, 1]) : (w_in_m, [0, 1, 0, h_in_m/w_in_m])
 
     GR.clearws()
+    GR.setscale(0)
     GR.setwsviewport(0, w_in_m, 0, h_in_m)
     GR.setwswindow(wswindow...)
     GR.setfillintstyle(GR.INTSTYLE_SOLID)
