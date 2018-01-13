@@ -1377,7 +1377,8 @@ function gr_pixel_size()
     w_in_m/w_in_px, h_in_m/h_in_px
 end
 
-function _before_layout_calcs(fig::Any, plt::Plot{GRBackend})
+_before_layout_calcs(fig::Void, plt::Plot{GRBackend}) = _before_layout_calcs(1, plt)
+function _before_layout_calcs(fig::Number, plt::Plot{GRBackend})
     select_fig!(fig == nothing ? 1 : fig)
     return Dict(:px => gr_pixel_size().* metre)
 end
