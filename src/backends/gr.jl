@@ -449,6 +449,7 @@ function gr_draw_markers(series::Series, x, y, msize, mz)
         if length(i_shapes) > 0
             ndcpts = GR.wctondc.(x[i_shapes], y[i_shapes])
             GR.savestate()
+            GR.setscale(0)
             GR.setwindow(viewport_plotarea...)
             GR.setviewport(viewport_plotarea...)
             if stroking
