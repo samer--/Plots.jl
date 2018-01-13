@@ -84,9 +84,10 @@ is_marker_supported(::GRBackend, shape::Shape) = true
 
 const M_PER_PT = 0.0254/72
 const TICK_LENGTH = 0.6
-const TICK_LABEL_PAD = 0.5 #0.6
+const TICK_LABEL_PAD = 0.5
 const TEXT_PAD       = 0.2
-const TITLE_TEXT_PAD = 0.5 #0.75
+const TITLE_TEXT_PAD = 0.5
+const FRAME_LINE_WIDTH = 0.75
 
 function add_backend_string(::GRBackend)
     """
@@ -707,7 +708,7 @@ function draw_border!(sp, axes_info, xmin, xmax, ymin, ymax)
         end
 
         if fg[1] == fg[2]
-            gr_set_line(1, :solid, fg[1])
+            gr_set_line(FRAME_LINE_WIDTH, :solid, fg[1])
             GR.settransparency(alpha)
             GR.drawrect(xmin, xmax, ymin, ymax)
         else
@@ -1137,8 +1138,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
 
         # draw the colorbar
         if cmap && st != :contour # special colorbar with steps is drawn for contours
-            gr_set_line(1, :solid, yaxis[:foreground_color_axis])
-            GR.settransparency(1)
+            gr_set_line(FRAME_LINE_WIDTH, :solid, yaxis[:foreground_color_axis])
             gr_colorbar(sp, clims)
         end
 
@@ -1204,7 +1204,7 @@ function gr_display(sp::Subplot{GRBackend}, w, h, viewport_canvas)
             (xpos,ypos) = gr_legend_pos(sp[:legend],w,h)
             gr_set_fillcolor(sp[:background_color_legend])
             GR.fillrect(xpos - 0.08, xpos + w + 0.02, ypos + dy, ypos - dy * n)
-            gr_set_line(1, :solid, sp[:foreground_color_legend])
+            gr_set_line(FRAME_LINE_WIDTH, :solid, sp[:foreground_color_legend])
             GR.drawrect(xpos - 0.08, xpos + w + 0.02, ypos + dy, ypos - dy * n)
             i = 0
             if sp[:legendtitle] != nothing

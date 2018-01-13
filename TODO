@@ -1,0 +1,8 @@
+Review use of environment variables in GR backend
+Rewrite legend layout to work with any font size
+Check log scale and scientific tick label formatters
+Check polar axes
+Check image file output
+Check use of DP / dpi_factor (compare with master?)
+refactor big gr_display
+extend multifig support to maplotlib?
