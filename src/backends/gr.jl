@@ -547,6 +547,7 @@ end
 # add the colorbar
 function gr_colorbar(sp::Subplot, clims)
     xmin, xmax = gr_xy_axislims(sp)[1:2]
+    gr_set_textcolor(sp[:titlefontcolor])
     gr_set_viewport_cmap(sp)
     l = zeros(Int32, 1, 256)
     l[1,:] = Int[round(Int, _i) for _i in linspace(1000, 1255, 256)]
