@@ -208,13 +208,11 @@ end
 gr_pt_to_ndu(x) = M_PER_PT * x / _ndu_in_m[1]
 gr_char_height(f) = gr_pt_to_ndu(f.pointsize)
 
-function gr_tick_label_formatter(axis)
-    return ( axis[:ticks] != :auto ? string
-           : ( axis[:scale] in _logScales      ? (dv -> string(dv, "\\ "))
-           : axis[:formatter] == :scientific ? convert_sci_unicode
-           : string
-           ))
-end
+gr_tick_label_formatter(axis) = ( axis[:ticks] != :auto ? string
+                                : ( axis[:scale] in _logScales      ? identity
+                                  : axis[:formatter] == :scientific ? convert_sci_unicode
+                                  : string
+                                  ))
 
 # draw line segments, splitting x/y into contiguous/finite segments
 # note: this can be used for shapes by passing func `GR.fillarea`
@@ -263,7 +261,7 @@ gr_inqtext(x, y, s::Symbol) = gr_inqtext(x, y, string(s))
 function gr_inqtext(x, y, s)
     if length(s) >= 2 && s[1] == '$' && s[end] == '$'
         GR.inqtextext(x, y, s[2:end-1])
-    elseif search(s, '\\') != 0 || contains(s, "10^{")
+    elseif any(contains.(s,["\\","^"])) # intentionally ignoring _
         GR.inqtextext(x, y, s)
     else
         GR.inqtext(x, y, s)
@@ -275,7 +273,7 @@ gr_text(x, y, s::Symbol) = gr_text(x, y, string(s))
 function gr_text(x, y, s)
     if length(s) >= 2 && s[1] == '$' && s[end] == '$'
         GR.mathtex(x, y, s[2:end-1])
-    elseif search(s, '\\') != 0 || contains(s, "10^{")
+    elseif any(contains.(s,["\\","^"])) # intentionally ignoring _
         GR.textext(x, y, s)
     else
         GR.text(x, y, s)
