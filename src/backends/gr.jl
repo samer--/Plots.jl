@@ -1307,7 +1307,7 @@ const _gr_wstype = Ref(get(ENV, "GKSwstype", _gr_wstype_default))
 
 const gks_state = [false, Dict(), nothing]
 
-function gr_closeall()
+function gr_close_all()
     GR.emergencyclosegks()
     gks_state[1] = false
     gks_state[2] = Dict()
@@ -1391,4 +1391,4 @@ function _update_min_padding!(sp::Subplot{GRBackend})
                  r*ndu + sp[:right_margin], b*ndu + sp[:bottom_margin])
 end
 
-closeall(::GRBackend) = gr_closeall()
+closeall(::GRBackend) = gr_close_all()
