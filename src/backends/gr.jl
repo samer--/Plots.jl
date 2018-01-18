@@ -588,10 +588,9 @@ end
 # --------------------------------------------------------------------------------------
 
 # this is our new display func... set up the viewport_canvas, compute bounding boxes, and display each subplot
-function gr_display(plt::Plot, fmt="")
+function gr_display(plt::Plot, scale_factor=1)
     px_in_m = gr_pixel_size()
-    dpi_factor = 1 # conceptually broken. haskey(ENV, "PLOTS_TEST") ? 1 : (plt[:dpi] / DPI)*(fmt=="png" ? 6 : 1)
-    w_in_m, h_in_m = dpi_factor .* plt[:size] .* px_in_m
+    w_in_m, h_in_m = scale_factor .* plt[:size] .* px_in_m
     _ndu_in_m[1], wswindow = h_in_m > w_in_m ?  (h_in_m, [0, w_in_m/h_in_m, 0, 1]) : (w_in_m, [0, 1, 0, h_in_m/w_in_m])
 
     GR.clearws()
@@ -1294,16 +1293,12 @@ const _gr_mimeformats = Dict(
     "image/svg+xml"           => "svg",
 )
 
-const _gr_wstype_default = @static if is_linux()
-    "x11"
-    # "cairox11"
-elseif is_apple()
-    "quartz"
-else
-    "use_default"
-end
-
-const _gr_wstype = Ref(get(ENV, "GKSwstype", _gr_wstype_default))
+# GKSwstype if present, otherwise guess by system type, otherwise
+# fall back to whatever GR chooses by itself.
+const _gr_wstype_default = get(ENV, "GKSwstype",
+                               if     is_linux() "x11"
+                               elseif is_apple() "quartz"
+                               else   nothing end)
 
 const gks_state = [false, Dict(), nothing]
 
@@ -1315,21 +1310,13 @@ function gr_close_all()
 end
 
 function with_plot_file(fmt, plt, action)
-    gr_close_all()
     filepath = tempname() * "." * fmt
-    env = get(ENV, "GKSwstype", "0")
-    ENV["GKSwstype"] = fmt
-    ENV["GKS_FILEPATH"] = filepath
-    gr_display(plt, fmt)
-    gr_close_all()
-
+    fig = first_free_fig()
+    select_fig!(fig, fmt)
+    gr_display(plt) # scale_factor = haskey(ENV, "PLOTS_TEST") ? 1 : (plt[:dpi] / DPI)*(fmt=="png" ? 6 : 1)
+    close_fig!(fig)
     action(filepath)
     rm(filepath)
-    if env != "0"
-        ENV["GKSwstype"] = env
-    else
-        pop!(ENV,"GKSwstype")
-    end
 end
 
 for (mime, fmt) in _gr_mimeformats
@@ -1338,36 +1325,58 @@ for (mime, fmt) in _gr_mimeformats
     end
 end
 
-function select_fig!(fig)
-    # FIXME this ENV stuff is well dodgy
-    if !haskey(ENV, "GKSwstype")
-        if isijulia() || (isdefined(Main, :Juno) && Juno.isactive())
-            ENV["GKSwstype"] = "svg"
-        end
-    end
+function first_free_fig()
+    fig = 1
+    in_use = keys(gks_state[2])
+    while (fig in in_use) fig = fig + 1 end
+    return fig
+end
 
-    if !gks_state[1] GR.opengks(); gks_state[1]=true; end
-    if gks_state[3] != fig
-        if !haskey(gks_state[2], fig)
-            GR.openws(fig, "", 0)
-            gks_state[2][fig] = false
-        end
-        GR.activatews(fig)
-        if gks_state[3] != nothing
-            GR.deactivatews(gks_state[3]);
-        end
-        gks_state[3]=fig
+function close_fig!(fig)
+    if gks_state[3] == fig gks_state[3] = 0 end
+    if gks_state[2][fig] GR.deactivatews(fig) end
+    GR.closews(fig)
+    delete!(gks_state[2], fig)
+end
+
+function with_env_held(f, nm)
+    setenv(v) = if v == nothing delete!(ENV,nm) else ENV[nm] = v end
+    oldval = get(ENV, nm, nothing)
+    try     return f()
+    finally setenv(oldval)
     end
 end
 
+function select_fig!(fig, wstype)
+    with_env_held("GKS_WSTYPE") do
+        with_env_held("GKSwstype") do
+            if wstype != nothing
+                ENV["GKSwstype"] = wstype
+                delete!(ENV,"GKS_WSTYPE") # to prevent this from shadowing GKSwstype
+            end
+
+            if !gks_state[1] GR.opengks(); gks_state[1]=true; end
+            if gks_state[3] != fig
+                if !haskey(gks_state[2], fig)
+                    GR.openws(fig, "", 0)
+                    gks_state[2][fig] = false
+                end
+                GR.activatews(fig)
+                if gks_state[3] != nothing
+                    GR.deactivatews(gks_state[3]);
+                end
+                gks_state[3]=fig
+            end
+        end
+    end
+end
+
+const _pdf_preamble = "\033]1337;File=inline=1;preserveAspectRatio=0:"
+
 function _display(plt::Plot{GRBackend})
     if plt[:display_type] == :inline
-        dump(fp) = println(string("\033]1337;File=inline=1;preserveAspectRatio=0:", base64encode(open(read, fp)), "\a"))
-        with_plot_file("pdf", plt, dump)
+       with_plot_file("pdf", plt, fp -> println(string(_pdf_preamble, base64encode(open(read, fp)), "\a")))
     else
-        if _gr_wstype[] != "use_default"
-            ENV["GKSwstype"] = _gr_wstype[]
-        end
         gr_display(plt)
     end
 end
@@ -1379,7 +1388,8 @@ end
 
 _before_layout_calcs(fig::Void, plt::Plot{GRBackend}) = _before_layout_calcs(1, plt)
 function _before_layout_calcs(fig::Number, plt::Plot{GRBackend})
-    select_fig!(fig == nothing ? 1 : fig)
+    wstype = isijulia() || (isdefined(Main, :Juno) && Juno.isactive()) ? "svg" : _gr_wstype_default
+    select_fig!(fig == nothing ? 1 : fig, wstype)
     return Dict(:px => gr_pixel_size().* metre)
 end
 
