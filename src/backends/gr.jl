@@ -1302,13 +1302,6 @@ const _gr_wstype_default = get(ENV, "GKSwstype",
 
 const gks_state = [false, Dict(), nothing]
 
-function gr_close_all()
-    GR.emergencyclosegks()
-    gks_state[1] = false
-    gks_state[2] = Dict()
-    gks_state[3] = nothing
-end
-
 function with_plot_file(fmt, plt, action)
     filepath = tempname() * "." * fmt
     fig = first_free_fig()
@@ -1371,10 +1364,9 @@ function select_fig!(fig, wstype)
     end
 end
 
-const _pdf_preamble = "\033]1337;File=inline=1;preserveAspectRatio=0:"
-
 function _display(plt::Plot{GRBackend})
     if plt[:display_type] == :inline
+       _pdf_preamble = "\033]1337;File=inline=1;preserveAspectRatio=0:"
        with_plot_file("pdf", plt, fp -> println(string(_pdf_preamble, base64encode(open(read, fp)), "\a")))
     else
         gr_display(plt)
@@ -1401,4 +1393,9 @@ function _update_min_padding!(sp::Subplot{GRBackend})
                  r*ndu + sp[:right_margin], b*ndu + sp[:bottom_margin])
 end
 
-closeall(::GRBackend) = gr_close_all()
+function closeall(::GRBackend)
+    GR.emergencyclosegks()
+    gks_state[1] = false
+    gks_state[2] = Dict()
+    gks_state[3] = nothing
+end
