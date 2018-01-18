@@ -205,8 +205,6 @@ end
 function _display(plt::Plot)
     warn("_display is not defined for this backend.")
 end
-#= function _display(fig::Any, plt::Plot) =#
-#=     warn("targetted _display is not defined for this backend.") =#
 #= end =#
 
 # for writing to io streams... first prepare, then callback
