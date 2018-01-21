@@ -1,6 +1,4 @@
-check marker size in GR svg and pdf - radius in points!
 Rewrite legend layout to work with any font size
 Check polar axes
 Check use of DP / dpi_factor (compare with master?)
 refactor big gr_display
-extend multifig support to maplotlib?

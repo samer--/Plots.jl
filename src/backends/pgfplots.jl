@@ -168,7 +168,7 @@ function pgf_marker(d::KW)
     cstr_stroke, a_stroke = pgf_color(d[:markerstrokecolor])
     """
     mark = $(get(_pgfplots_markers, shape, "*")),
-    mark size = $(0.5 * d[:markersize]),
+    mark size = $(d[:markersize]),
     mark options = {
         color = $cstr_stroke, draw opacity = $a_stroke,
         fill = $cstr, fill opacity = $a,
