@@ -179,7 +179,7 @@ const _ijulia_output = String["text/html"]
         end
 
         # default text/plain passes to html... handles Interact issues
-        Base.show(io::IO, m::MIME"text/plain", plt::Plot) = (prinlnt("Showing in IJulia"); _show(io, MIME"text/html", plt))
+        Base.show(io::IO, m::MIME"text/plain", plt::Plot) = _show(io, MIME"text/html", plt)
 
         ENV["MPLBACKEND"] = "Agg"
         set_ijulia_output("text/html")
