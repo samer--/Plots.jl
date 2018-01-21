@@ -1353,34 +1353,35 @@ function select_fig!(fig)
     end
 end
 
-# scale_factor = haskey(ENV, "PLOTS_TEST") ? 1 : (plt[:dpi] / DPI)*(fmt=="png" ? 6 : 1)
+function gr_with_temp_plot(action, fmt, plt)
+    if !gks_state[1] GR.opengks(); gks_state[1]=true; end
+    with_tempname() do path
+        with_new_fig(fmt, path) do
+            prepare_output(plt, Dict(:px => gr_pixel_size().* metre))
+            gr_display(plt)
+        end
+        action(path)
+    end
+end
 
 # --------------- INTERFACE FUNCTIONS ------------------------
+# scale_factor = haskey(ENV, "PLOTS_TEST") ? 1 : (plt[:dpi] / DPI)*(fmt=="png" ? 6 : 1)
 
 for (mime, fmt) in _gr_mimeformats
-    @eval function _show(io::IO, ::MIME{Symbol($mime)}, plt::Plot{GRBackend})
-        if !gks_state[1] GR.opengks(); gks_state[1]=true; end
-        with_tempname() do path
-            with_new_fig(_gr_mimeformats[$mime], path) do 
-                prepare_output(plt, Dict(:px => gr_pixel_size().* metre))
-                gr_display(plt)
-            end
-            write(io, readstring(path))
-        end
-    end
+    @eval _show(io::IO, ::MIME{Symbol($mime)}, plt::Plot{GRBackend}) =
+        gr_with_temp_plot(path -> write(io, readstring(path)), $(_gr_mimeformats[mime]), plt)
 end
 
 _display(plt::Plot{GRBackend}) = _display(1, plt)
 
 function _display(fig::Number, plt::Plot{GRBackend})
-    if !gks_state[1] GR.opengks(); gks_state[1]=true; end
-    select_fig!(fig)
-    prepare_output(plt, Dict(:px => gr_pixel_size().* metre))
-    if plt[:display_type] == :inline # WTF? 
-        error("trying to display inline... WTF?")
-       #= _pdf_preamble = "\033]1337;File=inline=1;preserveAspectRatio=0:" =#
-       #= with_plot_file(plt, fp -> println(string(_pdf_preamble, base64encode(open(read, fp)), "\a"))) =#
+    if plt[:display_type] == :inline
+       _pdf_preamble = "\033]1337;File=inline=1;preserveAspectRatio=0:"
+       gr_with_temp_plot(path -> println(string(_pdf_preamble, base64encode(open(read, path)), "\a")), "pdf", plt)
     else
+        if !gks_state[1] GR.opengks(); gks_state[1]=true; end
+        select_fig!(fig)
+        prepare_output(plt, Dict(:px => gr_pixel_size().* metre))
         gr_display(plt)
     end
 end
