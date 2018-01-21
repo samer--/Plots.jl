@@ -1308,7 +1308,7 @@ const _gr_wstype_default = get(ENV, "GKSwstype",
 const gks_state = [Dict(), nothing]
 
 function gr_init_gks()
-    if GR.gks_inq_operating_state() == 0
+    if gks_inq_operating_state() == 0
         GR.opengks();
         gks_state[1] = Dict(); gks_state[2] = nothing;
     end
@@ -1401,3 +1401,9 @@ function _update_min_padding!(sp::Subplot{GRBackend})
 end
 
 closeall(::GRBackend) = GR.emergencyclosegks()
+
+function gks_inq_operating_state()
+    x = Int32[0]
+    ccall((:gks_inq_operating_state, GR.libGR), Void, (Ptr{Int32},), x)
+    x[1]
+end
