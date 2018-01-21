@@ -791,9 +791,11 @@ function _show(io::IO, ::MIME"image/png", plt::Plot{PlotlyBackend})
 end
 
 function _show(io::IO, ::MIME"image/svg+xml", plt::Plot{PlotlyBackend})
+    prepare_output(plt)
     write(io, html_head(plt) * html_body(plt))
 end
 
 function _display(plt::Plot{PlotlyBackend})
+    prepare_output(plt)
     standalone_html_window(plt)
 end

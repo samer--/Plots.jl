@@ -475,32 +475,35 @@ function _update_plot_object(plt::Plot{PGFPlotsBackend})
 end
 
 function _show(io::IO, mime::MIME"image/svg+xml", plt::Plot{PGFPlotsBackend})
+    prepare_output(plt)
     show(io, mime, plt.o)
 end
 
 function _show(io::IO, mime::MIME"application/pdf", plt::Plot{PGFPlotsBackend})
+    prepare_output(plt)
     # prepare the object
     pgfplt = PGFPlots.plot(plt.o)
 
     # save a pdf
-    fn = tempname()*".pdf"
-    PGFPlots.save(PGFPlots.PDF(fn), pgfplt)
-
-    # read it into io
-    write(io, readstring(open(fn)))
+    with_tempname() do fn
+        PGFPlots.save(PGFPlots.PDF(fn), pgfplt)
+        write(io, readstring(open(fn)))
+    end
 
     # cleanup
     PGFPlots.cleanup(plt.o)
 end
 
 function _show(io::IO, mime::MIME"application/x-tex", plt::Plot{PGFPlotsBackend})
-    fn = tempname()*".tex"
-    PGFPlots.save(fn, backend_object(plt), include_preamble=false)
-    write(io, readstring(open(fn)))
+    prepare_output(plt)
+    with_tempname() do fn
+        PGFPlots.save(fn, plt.o, include_preamble=false)
+        write(io, readstring(open(fn)))
+    end
 end
 
 function _display(plt::Plot{PGFPlotsBackend})
-    # prepare the object
+    prepare_output(plt)
     PGFPlots.pushPGFPlotsPreamble("\\usepackage{fontspec}")
     pgfplt = PGFPlots.plot(plt.o)
 

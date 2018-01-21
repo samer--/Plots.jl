@@ -1030,6 +1030,7 @@ end
 
 
 function _display(plt::Plot{GLVisualizeBackend}, visible = true)
+    prepare_output(plt)
     screen = create_window(plt, visible)
     sw, sh = plt[:size]
     sw, sh = sw*px, sh*px

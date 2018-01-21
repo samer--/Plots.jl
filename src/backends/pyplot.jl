@@ -937,7 +937,7 @@ end
 # --------------------------------------------------------------------------
 
 
-function _before_layout_calcs(plt::Plot{PyPlotBackend})
+function py_plot(plt::Plot{PyPlotBackend})
     # update the fig
     w, h = plt[:size]
     fig = plt.o
@@ -1140,6 +1140,7 @@ function _before_layout_calcs(plt::Plot{PyPlotBackend})
 
     end
     py_drawfig(fig)
+    prepare_output(plt)
 end
 
 
@@ -1307,6 +1308,7 @@ end
 # display/output
 
 function _display(plt::Plot{PyPlotBackend})
+    py_plot(plt)
     plt.o[:show]()
 end
 
@@ -1324,6 +1326,7 @@ const _pyplot_mimeformats = Dict(
 
 for (mime, fmt) in _pyplot_mimeformats
     @eval function _show(io::IO, ::MIME{Symbol($mime)}, plt::Plot{PyPlotBackend})
+        py_plot(plt)
         fig = plt.o
         fig[:canvas][:print_figure](
             io,

@@ -49,9 +49,10 @@ _initialize_subplot(plt::Plot, sp::Subplot) = nothing
 _series_added(plt::Plot, series::Series) = nothing
 _series_updated(plt::Plot, series::Series) = nothing
 
-_before_layout_calcs(plt::Plot) = nothing
-_before_layout_calcs(fig::Void, plt::Plot) = _before_layout_calcs(plt)
-_before_layout_calcs(fig::Any, plt::Plot) = warn("Targetted display not supported by this backend")
+_display(plt::Plot) = warn("_display is not defined for this backend.")
+_display(fig::Any, plt::Plot) = warn("Targetted display not supported by this backend")
+
+_show(io::IO, m, plt::Plot{B}) where B = warn("_show is not defined for this backend. m=", string(m))
 
 title_padding(sp::Subplot) = sp[:title] == "" ? 0mm : sp[:titlefontsize] * pt
 guide_padding(axis::Axis) = axis[:guide] == "" ? 0mm : axis[:guidefontsize] * pt

@@ -205,6 +205,11 @@ function gr_set_gradient(c)
     grad
 end
 
+function gr_pixel_size()
+    w_in_m, h_in_m, w_in_px, h_in_px = GR.inqdspsize()
+    w_in_m/w_in_px, h_in_m/h_in_px
+end
+
 gr_pt_to_ndu(x) = M_PER_PT * x / _ndu_in_m[1]
 gr_char_height(f) = gr_pt_to_ndu(f.pointsize)
 
@@ -1302,90 +1307,84 @@ const _gr_wstype_default = get(ENV, "GKSwstype",
 
 const gks_state = [false, Dict(), nothing]
 
-function with_plot_file(fmt, plt, action)
-    filepath = tempname() * "." * fmt
-    fig = first_free_fig()
-    select_fig!(fig, fmt)
-    gr_display(plt) # scale_factor = haskey(ENV, "PLOTS_TEST") ? 1 : (plt[:dpi] / DPI)*(fmt=="png" ? 6 : 1)
-    close_fig!(fig)
-    action(filepath)
-    rm(filepath)
-end
-
-for (mime, fmt) in _gr_mimeformats
-    @eval function _show(io::IO, ::MIME{Symbol($mime)}, plt::Plot{GRBackend})
-        with_plot_file($fmt, plt, filepath -> write(io, readstring(filepath)))
-    end
-end
-
-function first_free_fig()
-    fig = 1
-    in_use = keys(gks_state[2])
-    while (fig in in_use) fig = fig + 1 end
-    return fig
-end
-
 function close_fig!(fig)
-    if gks_state[3] == fig gks_state[3] = 0 end
-    if gks_state[2][fig] GR.deactivatews(fig) end
+    if gks_state[3] == fig GR.deactivatews(fig); gks_state[3] = nothing end
     GR.closews(fig)
     delete!(gks_state[2], fig)
 end
 
-function with_env_held(f, nm)
-    setenv(v) = if v == nothing delete!(ENV,nm) else ENV[nm] = v end
-    oldval = get(ENV, nm, nothing)
-    try     return f()
-    finally setenv(oldval)
+gr_ws_types = Dict("x11"    => 211
+                  ,"quartz" => 400
+                  ,"png"    => 322
+                  ,"svg"    => 382
+                  ,"pdf"    => 102
+                  ,"ps"     => 62
+                  ,"eps"    => 62
+                  ,"html"   => 430
+                  ,"nothing"=> 0
+                  )
+
+function set_current_fig(fig) 
+    GR.activatews(fig)
+    gks_state[2][fig] = true
+    if gks_state[3] != nothing
+        GR.deactivatews(gks_state[3]);
+        gks_state[2][gks_state[3]] = false
+    end
+    gks_state[3]=fig
+end
+
+function with_new_fig(action, wstype, path)
+    fig = 1
+    while haskey(gks_state[2], fig) fig = fig + 1 end
+    GR.openws(fig, path, gr_ws_types[wstype])
+    set_current_fig(fig)
+    try     action()
+    finally close_fig!(fig)
     end
 end
 
-function select_fig!(fig, wstype)
-    with_env_held("GKS_WSTYPE") do
-        with_env_held("GKSwstype") do
-            if wstype != nothing
-                ENV["GKSwstype"] = wstype
-                delete!(ENV,"GKS_WSTYPE") # to prevent this from shadowing GKSwstype
-            end
+function select_fig!(fig)
+    if gks_state[3] != fig
+        if !haskey(gks_state[2], fig)
+            GR.openws(fig, "", gr_ws_types[_gr_wstype_default])
+        end
+        set_current_fig(fig)
+    end
+end
 
-            if !gks_state[1] GR.opengks(); gks_state[1]=true; end
-            if gks_state[3] != fig
-                if !haskey(gks_state[2], fig)
-                    GR.openws(fig, "", 0)
-                    gks_state[2][fig] = false
-                end
-                GR.activatews(fig)
-                if gks_state[3] != nothing
-                    GR.deactivatews(gks_state[3]);
-                end
-                gks_state[3]=fig
+# scale_factor = haskey(ENV, "PLOTS_TEST") ? 1 : (plt[:dpi] / DPI)*(fmt=="png" ? 6 : 1)
+
+# --------------- INTERFACE FUNCTIONS ------------------------
+
+for (mime, fmt) in _gr_mimeformats
+    @eval function _show(io::IO, ::MIME{Symbol($mime)}, plt::Plot{GRBackend})
+        if !gks_state[1] GR.opengks(); gks_state[1]=true; end
+        with_tempname() do path
+            with_new_fig(_gr_mimeformats[$mime], path) do 
+                prepare_output(plt, Dict(:px => gr_pixel_size().* metre))
+                gr_display(plt)
             end
+            write(io, readstring(path))
         end
     end
 end
 
-function _display(plt::Plot{GRBackend})
-    if plt[:display_type] == :inline
-       _pdf_preamble = "\033]1337;File=inline=1;preserveAspectRatio=0:"
-       with_plot_file("pdf", plt, fp -> println(string(_pdf_preamble, base64encode(open(read, fp)), "\a")))
+_display(plt::Plot{GRBackend}) = _display(1, plt)
+
+function _display(fig::Number, plt::Plot{GRBackend})
+    if !gks_state[1] GR.opengks(); gks_state[1]=true; end
+    select_fig!(fig)
+    prepare_output(plt, Dict(:px => gr_pixel_size().* metre))
+    if plt[:display_type] == :inline # WTF? 
+        error("trying to display inline... WTF?")
+       #= _pdf_preamble = "\033]1337;File=inline=1;preserveAspectRatio=0:" =#
+       #= with_plot_file(plt, fp -> println(string(_pdf_preamble, base64encode(open(read, fp)), "\a"))) =#
     else
         gr_display(plt)
     end
 end
 
-function gr_pixel_size()
-    w_in_m, h_in_m, w_in_px, h_in_px = GR.inqdspsize()
-    w_in_m/w_in_px, h_in_m/h_in_px
-end
-
-_before_layout_calcs(fig::Void, plt::Plot{GRBackend}) = _before_layout_calcs(1, plt)
-function _before_layout_calcs(fig::Number, plt::Plot{GRBackend})
-    wstype = isijulia() || (isdefined(Main, :Juno) && Juno.isactive()) ? "svg" : _gr_wstype_default
-    select_fig!(fig == nothing ? 1 : fig, wstype)
-    return Dict(:px => gr_pixel_size().* metre)
-end
-
-# required backend API function
 function _update_min_padding!(sp::Subplot{GRBackend})
     _ndu_in_m[1] = 1; ndu = metre # looks dodgy but is correct - ndu cancels out
     (l,t,r,b), sp.o = min_padding(sp, axis_drawing_info(sp))

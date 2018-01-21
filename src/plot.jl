@@ -132,7 +132,7 @@ function plot(plt1::Plot, plts_tail::Plot...; kw...)
 
     # finish up
     current(plt)
-    _do_plot_show(plt, get(d, :show, default(:show)))
+    maybe_show(get(d, :show, default(:show)), plt)
     plt
 end
 
@@ -234,23 +234,15 @@ function _plot!(plt::Plot, d::KW, args::Tuple)
     end
 
     # --------------------------------
-
     current(plt)
-
-    # do we want to force display?
-    # if plt[:show]
-    #     gui(plt)
-    # end
-    _do_plot_show(plt, plt[:show])
-
+    maybe_show(plt[:show], plt)
     plt
 end
 
 
 # we're getting ready to display/output.  prep for layout calcs, then update
 # the plot object after
-function prepare_output(fig::Any, plt::Plot)
-    info = _before_layout_calcs(fig, plt)
+function prepare_output(plt::Plot, info=nothing)
     size_in_px = plt.attr[:size]
 
     w, h = size_in_px .* (isa(info, Dict) ? info[:px] : px)
@@ -273,11 +265,6 @@ function prepare_output(fig::Any, plt::Plot)
     _update_plot_object(plt)
 end
 
-function backend_object(plt::Plot)
-    prepare_output(nothing, plt)
-    plt.o
-end
-
 # --------------------------------------------------------------------
 # plot to a Subplot
 
@@ -291,3 +278,6 @@ function plot!(sp::Subplot, args...; kw...)
 end
 
 # --------------------------------------------------------------------
+maybe_show(show, plt) = Dict(true=>gui, :gui=>gui, :inline=>inline, :ijulia=>inline, false=>_->nothing)[show](plt)
+0
+

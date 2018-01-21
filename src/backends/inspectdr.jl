@@ -400,9 +400,9 @@ end
 
 # called just before updating layout bounding boxes... in case you need to prep
 # for the calcs
-function _before_layout_calcs(plt::Plot{InspectDRBackend})
+function dr_mplot(plt::Plot{InspectDRBackend})
     const mplot = _inspectdr_getmplot(plt.o)
-    if nothing == mplot; return; end
+    if nothing == mplot; return mplot; end
 
     mplot.title = plt[:plot_title]
     if "" == mplot.title
@@ -445,7 +445,8 @@ function _before_layout_calcs(plt::Plot{InspectDRBackend})
     for series in plt.series_list
         _series_added(plt, series)
     end
-    return
+    prepare_output(plt)
+    return _inspectdr_getmplot(plt.o)
 end
 
 # ----------------------------------------------------------------
@@ -491,10 +492,8 @@ end
 
 # ----------------------------------------------------------------
 
-const _inspectdr_mimeformats_dpi = Dict(
-    "image/png"               => "png"
-)
-const _inspectdr_mimeformats_nodpi = Dict(
+const _inspectdr_mimeformats = Dict(
+    "image/png"               => "png",
     "image/svg+xml"           => "svg",
     "application/eps"         => "eps",
     "image/eps"               => "eps",
@@ -507,15 +506,10 @@ function _inspectdr_show(io::IO, mime::MIME, mplot, w, h)
     InspectDR._show(io, mime, mplot, Float64(w), Float64(h))
 end
 
-for (mime, fmt) in _inspectdr_mimeformats_dpi
+for (mime, fmt) in _inspectdr_mimeformats
     @eval function _show(io::IO, mime::MIME{Symbol($mime)}, plt::Plot{InspectDRBackend})
-        dpi = plt[:dpi]#TODO: support
-        _inspectdr_show(io, mime, _inspectdr_getmplot(plt.o), plt[:size]...)
-    end
-end
-for (mime, fmt) in _inspectdr_mimeformats_nodpi
-    @eval function _show(io::IO, mime::MIME{Symbol($mime)}, plt::Plot{InspectDRBackend})
-        _inspectdr_show(io, mime, _inspectdr_getmplot(plt.o), plt[:size]...)
+        #= dpi = plt[:dpi]#TODO: support DPI for PNG=#
+        _inspectdr_show(io, mime, dr_mplot(plt), plt[:size]...)
     end
 end
 _show(io::IO, mime::MIME"text/plain", plt::Plot{InspectDRBackend}) = nothing #Don't show
@@ -524,7 +518,7 @@ _show(io::IO, mime::MIME"text/plain", plt::Plot{InspectDRBackend}) = nothing #Do
 
 # Display/show the plot (open a GUI window, or browser page, for example).
 function _display(plt::Plot{InspectDRBackend})
-    mplot = _inspectdr_getmplot(plt.o)
+    mplot = dr_mplot(plt)
     if nothing == mplot; return; end
     gplot = _inspectdr_getgui(plt.o)
 

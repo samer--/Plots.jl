@@ -199,20 +199,13 @@ end
 # we don't do very much for subplots... just stack them vertically
 
 function unicodeplots_rebuild(plt::Plot{UnicodePlotsBackend})
+    prepare_output(plt)
     w, h = plt[:size]
     plt.attr[:color_palette] = [RGB(0,0,0)]
     rebuildUnicodePlot!(plt, div(w, 10), div(h, 20))
-end
-
-function _show(io::IO, ::MIME"text/plain", plt::Plot{UnicodePlotsBackend})
-    unicodeplots_rebuild(plt)
     map(show, plt.o)
-    nothing
+    return nothing
 end
 
-
-function _display(plt::Plot{UnicodePlotsBackend})
-    unicodeplots_rebuild(plt)
-    map(show, plt.o)
-    nothing
-end
+_show(io::IO, ::MIME"text/plain", plt::Plot{UnicodePlotsBackend}) = unicodeplots_rebuild(plt)
+_display(plt::Plot{UnicodePlotsBackend}) = unicodeplots_rebuild(plt)

@@ -40,11 +40,6 @@ end
 
 # ---------------------------------------------------------------------------
 
-# called just before updating layout bounding boxes... in case you need to prep
-# for the calcs
-function _before_layout_calcs(plt::Plot{[PkgName]Backend})
-end
-
 # Set the (left, top, right, bottom) minimum padding around the plot area
 # to fit ticks, tick labels, guides, colorbars, etc.
 function _update_min_padding!(sp::Subplot{[PkgName]Backend})
@@ -68,8 +63,10 @@ end
     # "application/postscript"  => "ps",
     # "image/svg+xml"           => "svg"
 function _show(io::IO, ::MIME"image/png", plt::Plot{[PkgName]Backend})
+    prepare_output(plt)
 end
 
 # Display/show the plot (open a GUI window, or browser page, for example).
 function _display(plt::Plot{[PkgName]Backend})
+    prepare_output(plt)
 end

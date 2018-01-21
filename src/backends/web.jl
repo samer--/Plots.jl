@@ -58,11 +58,9 @@ function show_png_from_html(io::IO, plt::AbstractPlot)
     html_fn = write_temp_html(plt)
 
     # convert that html file to a temporary png file using wkhtmltoimage
-    png_fn = tempname() * ".png"
     w, h = plt.attr[:size]
-    html_to_png(html_fn, png_fn, w, h)
-
-    # now read that file data into io
-    pngdata = readall(png_fn)
-    write(io, pngdata)
+    with_tempname() do png_fn
+        html_to_png(html_fn, png_fn, w, h)
+        write(io, readall(png_fn))
+    end
 end

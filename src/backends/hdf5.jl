@@ -214,21 +214,11 @@ function _series_updated(plt::Plot{HDF5Backend}, series::Series)
     #Do nothing
 end
 
-# ---------------------------------------------------------------------------
-
-# called just before updating layout bounding boxes... in case you need to prep
-# for the calcs
-function _before_layout_calcs(plt::Plot{HDF5Backend})
-    #Do nothing
-end
-
 # ----------------------------------------------------------------
 
 # Set the (left, top, right, bottom) minimum padding around the plot area
 # to fit ticks, tick labels, guides, colorbars, etc.
-function _update_min_padding!(sp::Subplot{HDF5Backend})
-    #Do nothing
-end
+_update_min_padding!(sp::Subplot{HDF5Backend}) = nothing
 
 # ----------------------------------------------------------------
 
