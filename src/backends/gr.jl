@@ -1305,12 +1305,19 @@ const _gr_wstype_default = get(ENV, "GKSwstype",
                                elseif is_apple() "quartz"
                                else   nothing end)
 
-const gks_state = [false, Dict(), nothing]
+const gks_state = [Dict(), nothing]
+
+function gr_init_gks()
+    if GR.gks_inq_operating_state() == 0
+        GR.opengks();
+        gks_state[1] = Dict(); gks_state[2] = nothing;
+    end
+end
 
 function close_fig!(fig)
-    if gks_state[3] == fig GR.deactivatews(fig); gks_state[3] = nothing end
+    if gks_state[2] == fig GR.deactivatews(fig); gks_state[2] = nothing end
     GR.closews(fig)
-    delete!(gks_state[2], fig)
+    delete!(gks_state[1], fig)
 end
 
 gr_ws_types = Dict("x11"    => 211
@@ -1324,19 +1331,19 @@ gr_ws_types = Dict("x11"    => 211
                   ,"nothing"=> 0
                   )
 
-function set_current_fig(fig) 
+function set_current_fig(fig)
     GR.activatews(fig)
-    gks_state[2][fig] = true
-    if gks_state[3] != nothing
-        GR.deactivatews(gks_state[3]);
-        gks_state[2][gks_state[3]] = false
+    gks_state[1][fig] = true
+    if gks_state[2] != nothing
+        GR.deactivatews(gks_state[2]);
+        gks_state[1][gks_state[2]] = false
     end
-    gks_state[3]=fig
+    gks_state[2]=fig
 end
 
 function with_new_fig(action, wstype, path)
     fig = 1
-    while haskey(gks_state[2], fig) fig = fig + 1 end
+    while haskey(gks_state[1], fig) fig = fig + 1 end
     GR.openws(fig, path, gr_ws_types[wstype])
     set_current_fig(fig)
     try     action()
@@ -1345,8 +1352,8 @@ function with_new_fig(action, wstype, path)
 end
 
 function select_fig!(fig)
-    if gks_state[3] != fig
-        if !haskey(gks_state[2], fig)
+    if gks_state[2] != fig
+        if !haskey(gks_state[1], fig)
             GR.openws(fig, "", gr_ws_types[_gr_wstype_default])
         end
         set_current_fig(fig)
@@ -1354,7 +1361,7 @@ function select_fig!(fig)
 end
 
 function gr_with_temp_plot(action, fmt, plt)
-    if !gks_state[1] GR.opengks(); gks_state[1]=true; end
+    gr_init_gks()
     with_tempname() do path
         with_new_fig(fmt, path) do
             prepare_output(plt, Dict(:px => gr_pixel_size().* metre))
@@ -1376,10 +1383,10 @@ _display(plt::Plot{GRBackend}) = _display(1, plt)
 
 function _display(fig::Number, plt::Plot{GRBackend})
     if plt[:display_type] == :inline
-       _pdf_preamble = "\033]1337;File=inline=1;preserveAspectRatio=0:"
-       gr_with_temp_plot(path -> println(string(_pdf_preamble, base64encode(open(read, path)), "\a")), "pdf", plt)
+        _pdf_preamble = "\033]1337;File=inline=1;preserveAspectRatio=0:"
+        gr_with_temp_plot(path -> println(string(_pdf_preamble, base64encode(open(read, path)), "\a")), "pdf", plt)
     else
-        if !gks_state[1] GR.opengks(); gks_state[1]=true; end
+        gr_init_gks()
         select_fig!(fig)
         prepare_output(plt, Dict(:px => gr_pixel_size().* metre))
         gr_display(plt)
@@ -1393,9 +1400,4 @@ function _update_min_padding!(sp::Subplot{GRBackend})
                  r*ndu + sp[:right_margin], b*ndu + sp[:bottom_margin])
 end
 
-function closeall(::GRBackend)
-    GR.emergencyclosegks()
-    gks_state[1] = false
-    gks_state[2] = Dict()
-    gks_state[3] = nothing
-end
+closeall(::GRBackend) = GR.emergencyclosegks()
