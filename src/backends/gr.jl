@@ -1328,7 +1328,7 @@ gr_ws_types = Dict("x11"    => 211
                   ,"ps"     => 62
                   ,"eps"    => 62
                   ,"html"   => 430
-                  ,"nothing"=> 0
+                  ,nothing  => 0
                   )
 
 function set_current_fig(fig)
