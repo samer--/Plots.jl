@@ -321,10 +321,12 @@ end
     n, m = size(mat)
     if is_seriestype_supported(:image)
         seriestype := :image
+        yflip --> true
         SliceIt, 1:m, 1:n, Surface(mat)
     else
         seriestype := :heatmap
         yflip --> true
+        cbar --> false
         fillcolor --> ColorGradient([:black, :white])
         SliceIt, 1:m, 1:n, Surface(convert(Matrix{Float64}, mat))
     end
@@ -337,10 +339,12 @@ end
 
     if is_seriestype_supported(:image)
         seriestype := :image
+        yflip --> true
         SliceIt, 1:m, 1:n, Surface(mat)
     else
         seriestype := :heatmap
         yflip --> true
+        cbar --> false
         z, plotattributes[:fillcolor] = replace_image_with_heatmap(mat)
         SliceIt, 1:m, 1:n, Surface(z)
     end
@@ -465,6 +469,38 @@ end
     SliceIt, x, y, Surface(z)
 end
 
+# # images - grays
+
+@recipe function f(x::AVec, y::AVec, mat::AMat{T}) where T<:Gray
+    if is_seriestype_supported(:image)
+        seriestype := :image
+        yflip --> true
+        SliceIt, x, y, Surface(mat)
+    else
+        seriestype := :heatmap
+        yflip --> true
+        cbar --> false
+        fillcolor --> ColorGradient([:black, :white])
+        SliceIt, x, y, Surface(convert(Matrix{Float64}, mat))
+    end
+end
+
+# # images - colors
+
+@recipe function f(x::AVec, y::AVec, mat::AMat{T}) where T<:Colorant
+    if is_seriestype_supported(:image)
+        seriestype := :image
+        yflip --> true
+        SliceIt, x, y, Surface(mat)
+    else
+        seriestype := :heatmap
+        yflip --> true
+        cbar --> false
+        z, plotattributes[:fillcolor] = replace_image_with_heatmap(mat)
+        SliceIt, x, y, Surface(z)
+    end
+end
+
 #
 #
 # # --------------------------------------------------------------------
@@ -548,9 +584,14 @@ end
 splittable_kw(key, val, lengthGroup) = false
 splittable_kw(key, val::AbstractArray, lengthGroup) = (key != :group) && size(val,1) == lengthGroup
 splittable_kw(key, val::Tuple, lengthGroup) = all(splittable_kw.(key, val, lengthGroup))
+splittable_kw(key, val::SeriesAnnotations, lengthGroup) = splittable_kw(key, val.strs, lengthGroup)
 
 split_kw(key, val::AbstractArray, indices) = val[indices, fill(Colon(), ndims(val)-1)...]
 split_kw(key, val::Tuple, indices) = Tuple(split_kw(key, v, indices) for v in val)
+function split_kw(key, val::SeriesAnnotations, indices)
+    split_strs = split_kw(key, val.strs, indices)
+    return SeriesAnnotations(split_strs, val.font, val.baseshape, val.scalefactor)
+end
 
 function groupedvec2mat(x_ind, x, y::AbstractArray, groupby, def_val = y[1])
     y_mat = Array{promote_type(eltype(y), typeof(def_val))}(length(keys(x_ind)), length(groupby.groupLabels))

@@ -83,7 +83,6 @@ function _initialize_backend(::PyPlotBackend)
         export PyPlot
         const pycolors = PyPlot.pyimport("matplotlib.colors")
         const pypath = PyPlot.pyimport("matplotlib.path")
-        const mplot3d = PyPlot.pyimport("mpl_toolkits.mplot3d")
         const pypatches = PyPlot.pyimport("matplotlib.patches")
         const pyfont = PyPlot.pyimport("matplotlib.font_manager")
         const pyticker = PyPlot.pyimport("matplotlib.ticker")
@@ -92,7 +91,7 @@ function _initialize_backend(::PyPlotBackend)
         pynp["seterr"](invalid="ignore")
         const pytransforms = PyPlot.pyimport("matplotlib.transforms")
         const pycollections = PyPlot.pyimport("matplotlib.collections")
-        const pyart3d = PyPlot.pyimport("mpl_toolkits.mplot3d.art3d")
+        const pyart3d = PyPlot.art3D
 
         # "support" matplotlib v1.5
         const set_facecolor_sym = if PyPlot.version < v"2"
@@ -732,6 +731,7 @@ function py_add_series(plt::Plot{PyPlotBackend}, series::Series)
 
     if st == :image
         # @show typeof(z)
+        xmin, xmax = ignorenan_extrema(series[:x]); ymin, ymax = ignorenan_extrema(series[:y])
         img = Array(transpose_z(series, z.surf))
         z = if eltype(img) <: Colors.AbstractGray
             float(img)
@@ -744,7 +744,8 @@ function py_add_series(plt::Plot{PyPlotBackend}, series::Series)
             zorder = series[:series_plotindex],
             cmap = py_colormap([:black, :white]),
             vmin = 0.0,
-            vmax = 1.0
+            vmax = 1.0,
+            extent = (xmin, xmax, ymax, ymin)
         )
         push!(handles, handle)
 
