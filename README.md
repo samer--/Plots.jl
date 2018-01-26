@@ -1,5 +1,38 @@
 This is a fork of https://github.com/JuliaPlots/Plots.jl
+Differences from upstream include:
 
+
+Fixes
+- Pick up defaults from `PLOTS_DEFAULTS` when changing theme.
+- Allow backend to report its physical pixel dimension BEFORE doing layout,
+  so that the `px` unit can be set-up correctly.
+- GR backend now uses correct work
+- Now using `with_tempname()` to clean up temporary files properly.
+
+Enhancements
+- Added beginnings of a framework for multiple figures, currently only support by GR backend.
+  This is assisted by a refactoring of `output.jl` and a change to the interface to the
+  backends.
+- GR backend layout is made more consistent and reliable by measuring all pieces of text
+  to compute margins and placement.
+- GR backend supports multiple figures by opening and keeping track of multiple GR workstations.
+- Ticks in GR backend now have an absolute length, not proportional to dimensions of plot.
+- GR backend fills whole window with background colour, not just the WS viewport.
+- Several rendering attributes in GR backend (eg frame line width, axis tick length, gap between 
+  axis tick labels) are now named constants, in advance of surfacing them as user specified
+  attributes.
+- Marker rendering in GR rewritten and optimised to suit marker rendering in my fork of GR.
+  It now tries to satisfy marker alpha and marker stroke width and alpha requirements
+  by choosing from 3 marker drawing methods.
+- In GR, marker sizes and linewidths are interpreted as physical dimensions in points.
+
+Refactorings
+- Axes layout and rendering in GR
+- GR no longer relies on manipulating environment ENV to control GR library.
+- `_before_layout_calcs` removed from interface to backends, now backends do what they
+  like in `_display` and `_show` but should call back to `prepare_output` to layout subplots.
+
+NB. Many of these features rely on my fork of GR, at https://github.com/samer--/gr
 
 # Plots
 
