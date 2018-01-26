@@ -1,3 +1,7 @@
+This is a fork of https://github.com/JuliaPlots/Plots.jl
+See README.md in branch `samer` (https://github.com/samer--/Plots.jl/tree/samer) 
+for more details.
+
 # Plots
 
 [![Build Status](https://travis-ci.org/JuliaPlots/Plots.jl.svg?branch=master)](https://travis-ci.org/JuliaPlots/Plots.jl)
