@@ -1,6 +1,9 @@
-bind(f,a1) = args -> f(a1, args...)
-function with_tempname(action)
-    f = tempname()
+bind(f,a1) = (args...) -> f(a1, args...)
+fork(f,g) = x -> (f(x), g(x))
+id(x) = x
+
+function with_tempname(action, ext="")
+    f = tempname() * ext
     try     return action(f)
     finally rm(f, force=true) end
 end
@@ -68,20 +71,14 @@ type is inferred from the file extension. All backends support png and pdf
 file types, some also support svg, ps, eps, html and tex.
 """
 function savefig(plt::Plot, fn::AbstractString)
-  # get the extension
-  try
-    ext = getExtension(fn)
-  catch
-    # if we couldn't extract the extension, add the default
-    ext = defaultOutputFormat(plt)
-    fn = addExtension(fn, ext)
-  end
-
+  (fn1, ext) = try fork(id, getExtension)(fn)
+               catch fork(bind(addExtension, fn), id)(defaultOutputFormat(plt))
+               end
   # save it
   func = get(_savemap, ext) do
-    error("Unsupported extension $ext with filename ", fn)
+    error("Unsupported extension $ext with filename ", fn1)
   end
-  func(ext, plt, fn)
+  func(plt, fn1)
 end
 savefig(fn::AbstractString) = savefig(current(), fn)
 

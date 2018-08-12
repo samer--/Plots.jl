@@ -87,7 +87,7 @@ const TICK_LENGTH = 0.6
 const TICK_LABEL_PAD = 0.5
 const TEXT_PAD       = 0.2
 const TITLE_TEXT_PAD = 0.5
-const FRAME_LINE_WIDTH = 0.75
+const FRAME_LINE_WIDTH = 0.5
 
 function add_backend_string(::GRBackend)
     """
@@ -743,7 +743,7 @@ function draw_ticks_and_labels!(sp, direction, info, perp, axis_text_pos)
         end
 
         if !(sp[:framestyle] in (:zerolines, :grid))
-            gr_set_line(1, :solid, axis[:foreground_color_axis])
+            gr_set_line(FRAME_LINE_WIDTH, :solid, axis[:foreground_color_axis])
             for (cv, dv) in zip(ticks...)
                 pt = (cv, perp)
                 x1, y1 = ndctowc(tplace1(pt))
@@ -1363,7 +1363,7 @@ end
 
 function gr_with_temp_plot(action, fmt, plt)
     gr_init_gks()
-    with_tempname() do path
+    with_tempname("." * fmt) do path
         with_new_fig(fmt, path) do
             prepare_output(plt, Dict(:px => gr_pixel_size().* metre))
             gr_display(plt)
