@@ -9,10 +9,6 @@ TODO
     * fix units in all visuals (e.g dotted lines, marker scale, surfaces)
 =#
 
-@require Revise begin
-    Revise.track(Plots, joinpath(Pkg.dir("Plots"), "src", "backends", "glvisualize.jl"))
-end
-
 const _glvisualize_attr = merge_with_base_supported([
     :annotations,
     :background_color_legend, :background_color_inside, :background_color_outside,
@@ -51,7 +47,7 @@ const _glvisualize_attr = merge_with_base_supported([
     :tick_direction,
 ])
 const _glvisualize_seriestype = [
-    :path, :shape,
+    :path, :shape, :straightline,
     :scatter, :hexbin,
     :bar, :boxplot,
     :heatmap, :image, :volume,
@@ -61,36 +57,11 @@ const _glvisualize_style = [:auto, :solid, :dash, :dot, :dashdot]
 const _glvisualize_marker = _allMarkers
 const _glvisualize_scale = [:identity, :ln, :log2, :log10]
 
-
-
-# --------------------------------------------------------------------------------------
-
-function _initialize_backend(::GLVisualizeBackend; kw...)
-    @eval begin
-        import GLVisualize, GeometryTypes, Reactive, GLAbstraction, GLWindow, Contour
-        import GeometryTypes: Point2f0, Point3f0, Vec2f0, Vec3f0, GLNormalMesh, SimpleRectangle, Point, Vec
-        import FileIO, Images
-        export GLVisualize
-        import Reactive: Signal
-        import GLAbstraction: Style
-        import GLVisualize: visualize
-        import Plots.GL
-        import UnicodeFun
-        Plots.slice_arg(img::Matrix{C}, idx::Int) where {C<:Colorant} = img
-        is_marker_supported(::GLVisualizeBackend, shape::GLVisualize.AllPrimitives) = true
-        is_marker_supported(::GLVisualizeBackend, shape::Union{Vector{Matrix{C}}, Matrix{C}}) where {C<:Colorant} = true
-        is_marker_supported(::GLVisualizeBackend, shape::Shape) = true
-        const GL = Plots
-    end
-end
-
-function add_backend_string(b::GLVisualizeBackend)
-    """
-    if !Plots.is_installed("GLVisualize")
-        Pkg.add("GLVisualize")
-    end
-    """
-end
+slice_arg(img::Matrix{C}, idx::Int) where {C<:Colorant} = img
+is_marker_supported(::GLVisualizeBackend, shape::GLVisualize.AllPrimitives) = true
+is_marker_supported(::GLVisualizeBackend, shape::Union{Vector{Matrix{C}}, Matrix{C}}) where {C<:Colorant} = true
+is_marker_supported(::GLVisualizeBackend, shape::Shape) = true
+GL = Plots
 
 # ---------------------------------------------------------------------------
 
@@ -287,7 +258,13 @@ function topoints(::Type{P}, array) where P
 end
 function extract_points(d)
     dim = is3d(d) ? 3 : 2
-    array = (d[:x], d[:y], d[:z])[1:dim]
+    array = if d[:seriestype] == :straightline
+        straightline_data(d)
+    elseif d[:seriestype] == :shape
+        shape_data(d)
+    else
+        (d[:x], d[:y], d[:z])[1:dim]
+    end
     topoints(Point{dim, Float32}, array)
 end
 function make_gradient(grad::Vector{C}) where C <: Colorant
@@ -391,7 +368,7 @@ function gappy(x, ps)
     return last(ps) - x
 end
 function ticks(points, resolution)
-    Float16[gappy(x, points) for x = linspace(first(points),last(points), resolution)]
+    Float16[gappy(x, points) for x = range(first(points), stop=last(points), length=resolution)]
 end
 
 
@@ -690,7 +667,7 @@ function text_model(font, pivot)
     end
 end
 function gl_draw_axes_2d(sp::Plots.Subplot{Plots.GLVisualizeBackend}, model, area)
-    xticks, yticks, xspine_segs, yspine_segs, xtick_segs, ytick_segs, xgrid_segs, ygrid_segs, xborder_segs, yborder_segs = Plots.axis_drawing_info(sp)
+    xticks, yticks, xspine_segs, yspine_segs, xtick_segs, ytick_segs, xgrid_segs, ygrid_segs, xminorgrid_segs, yminorgrid_segs, xborder_segs, yborder_segs = Plots.axis_drawing_info(sp)
     xaxis = sp[:xaxis]; yaxis = sp[:yaxis]
 
     xgc = Colors.color(Plots.gl_color(xaxis[:foreground_color_grid]))
@@ -703,6 +680,14 @@ function gl_draw_axes_2d(sp::Plots.Subplot{Plots.GLVisualizeBackend}, model, are
     if yaxis[:grid]
         grid = draw_grid_lines(sp, ygrid_segs, yaxis[:gridlinewidth], yaxis[:gridstyle], model, RGBA(ygc, yaxis[:gridalpha]))
         push!(axis_vis, grid)
+    end
+    if xaxis[:minorgrid]
+        minorgrid = draw_minorgrid_lines(sp, xminorgrid_segs, xaxis[:minorgridlinewidth], xaxis[:minorgridstyle], model, RGBA(xgc, xaxis[:minorgridalpha]))
+        push!(axis_vis, minorgrid)
+    end
+    if yaxis[:minorgrid]
+        minorgrid = draw_minorgrid_lines(sp, yminorgrid_segs, yaxis[:minorgridlinewidth], yaxis[:minorgridstyle], model, RGBA(ygc, yaxis[:minorgridalpha]))
+        push!(axis_vis, minorgrid)
     end
 
     xac = Colors.color(Plots.gl_color(xaxis[:foreground_color_axis]))
@@ -895,12 +880,12 @@ function gl_boxplot(d, kw_args)
         # filter y
         values = y[filter(i -> _cycle(x,i) == glabel, 1:length(y))]
         # compute quantiles
-        q1,q2,q3,q4,q5 = quantile(values, linspace(0,1,5))
+        q1,q2,q3,q4,q5 = quantile(values, range(0, stop=1, length=5))
         # notch
         n = Plots.notch_width(q2, q4, length(values))
         # warn on inverted notches?
         if notch && !warning && ( (q2>(q3-n)) || (q4<(q3+n)) )
-            warn("Boxplot's notch went outside hinges. Set notch to false.")
+            @warn("Boxplot's notch went outside hinges. Set notch to false.")
             warning = true # Show the warning only one time
         end
 
@@ -999,7 +984,7 @@ end
 
 function scale_for_annotations!(series::Series, scaletype::Symbol = :pixels)
     anns = series[:series_annotations]
-    if anns != nothing && !isnull(anns.baseshape)
+    if anns != nothing && anns.baseshape != nothing
         # we use baseshape to overwrite the markershape attribute
         # with a list of custom shapes for each
         msw, msh = anns.scalefactor
@@ -1102,7 +1087,7 @@ function _display(plt::Plot{GLVisualizeBackend}, visible = true)
                     kw_args[:stroke_width] = Float32(d[:linewidth]/100f0)
                 end
                 vis = GL.gl_surface(x, y, z, kw_args)
-            elseif (st in (:path, :path3d)) && d[:linewidth] > 0
+            elseif (st in (:path, :path3d, :straightline)) && d[:linewidth] > 0
                 kw = copy(kw_args)
                 points = Plots.extract_points(d)
                 extract_linestyle(d, kw)
@@ -1315,7 +1300,7 @@ function gl_poly(points, kw_args)
         if !isempty(GeometryTypes.faces(mesh)) # check if polygonation has any faces
             push!(result, GLVisualize.visualize(mesh, Style(:default), kw_args))
         else
-            warn("Couldn't draw the polygon: $points")
+            @warn("Couldn't draw the polygon: $points")
         end
     end
     result
@@ -1325,7 +1310,7 @@ end
 
 
 function gl_surface(x,y,z, kw_args)
-    if isa(x, Range) && isa(y, Range)
+    if isa(x, AbstractRange) && isa(y, AbstractRange)
         main = z
         kw_args[:ranges] = (x, y)
     else
@@ -1341,7 +1326,7 @@ function gl_surface(x,y,z, kw_args)
         if get(kw_args, :wireframe, false)
             points = map(Point3f0, zip(vec(x), vec(y), vec(z)))
             faces = Cuint[]
-            idx = (i,j) -> sub2ind(size(z), i, j) - 1
+            idx = (i,j) -> CartesianIndices(size(z), i, j) - 1
             for i=1:size(z,1), j=1:size(z,2)
 
                 i < size(z,1) && push!(faces, idx(i, j), idx(i+1, j))
@@ -1460,7 +1445,7 @@ function make_label(sp, series, i)
     d = series.d
     st = d[:seriestype]
     kw_args = KW()
-    if (st in (:path, :path3d)) && d[:linewidth] > 0
+    if (st in (:path, :path3d, :straightline)) && d[:linewidth] > 0
         points = Point2f0[(0, ho), (w, ho)]
         kw = KW()
         extract_linestyle(d, kw)

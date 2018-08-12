@@ -80,7 +80,7 @@ function process_axis_arg!(d::KW, arg, letter = "")
         d[Symbol(letter,:formatter)] = arg
 
     elseif !handleColors!(d, arg, Symbol(letter, :foreground_color_axis))
-        warn("Skipped $(letter)axis arg $arg")
+        @warn("Skipped $(letter)axis arg $arg")
 
     end
 end
@@ -212,12 +212,20 @@ function optimal_ticks_and_labels(axis::Axis, ticks = nothing)
         formatter = axis[:formatter]
         if formatter == :auto
             # the default behavior is to make strings of the scaled values and then apply the labelfunc
+            map(labelfunc(scale, backend()), Showoff.showoff(scaled_ticks, :auto))
+        elseif formatter == :plain
+            # Leave the numbers in plain format
             map(labelfunc(scale, backend()), Showoff.showoff(scaled_ticks, :plain))
         elseif formatter == :scientific
             Showoff.showoff(unscaled_ticks, :scientific)
         else
             # there was an override for the formatter... use that on the unscaled ticks
             map(formatter, unscaled_ticks)
+            # if the formatter left us with numbers, still apply the default formatter
+            # However it leave us with the problem of unicode number decoding by the backend
+            # if eltype(unscaled_ticks) <: Number
+            #     Showoff.showoff(unscaled_ticks, :auto)
+            # end
         end
     else
         # no finite ticks to show...
@@ -234,12 +242,21 @@ function get_ticks(axis::Axis)
     ticks = _transform_ticks(axis[:ticks])
     ticks in (nothing, false) && return nothing
 
+    # treat :native ticks as :auto
+    ticks = ticks == :native ? :auto : ticks
+
     dvals = axis[:discrete_values]
-    cv, dv = if !isempty(dvals) && ticks == :auto
-        # discrete ticks...
-        axis[:continuous_values], dvals
-    elseif ticks == :auto
-        if ispolar(axis.sps[1]) && axis[:letter] == :x
+    cv, dv = if typeof(ticks) <: Symbol
+        if !isempty(dvals)
+            # discrete ticks...
+            n = length(dvals)
+            rng = if ticks == :auto
+                Int[round(Int,i) for i in range(1, stop=n, length=15)]
+            else # if ticks == :all
+                1:n
+            end
+            axis[:continuous_values][rng], dvals[rng]
+        elseif ispolar(axis.sps[1]) && axis[:letter] == :x
             #force theta axis to be full circle
             (collect(0:pi/4:7pi/4), string.(0:45:315))
         else
@@ -247,8 +264,13 @@ function get_ticks(axis::Axis)
             optimal_ticks_and_labels(axis)
         end
     elseif typeof(ticks) <: Union{AVec, Int}
-        # override ticks, but get the labels
-        optimal_ticks_and_labels(axis, ticks)
+        if !isempty(dvals) && typeof(ticks) <: Int
+            rng = Int[round(Int,i) for i in range(1, stop=length(dvals), length=ticks)]
+            axis[:continuous_values][rng], dvals[rng]
+        else
+            # override ticks, but get the labels
+            optimal_ticks_and_labels(axis, ticks)
+        end
     elseif typeof(ticks) <: NTuple{2, Any}
         # assuming we're passed (ticks, labels)
         ticks
@@ -257,18 +279,40 @@ function get_ticks(axis::Axis)
     end
     # @show ticks dvals cv dv
 
-    # TODO: better/smarter cutoff values for sampling ticks
-    if length(cv) > 30 && ticks == :auto
-        rng = Int[round(Int,i) for i in linspace(1, length(cv), 15)]
-        cv[rng], dv[rng]
-    else
-        cv, dv
-    end
+    return cv, dv
 end
 
 _transform_ticks(ticks) = ticks
 _transform_ticks(ticks::AbstractArray{T}) where T <: Dates.TimeType = Dates.value.(ticks)
 _transform_ticks(ticks::NTuple{2, Any}) = (_transform_ticks(ticks[1]), ticks[2])
+
+function get_minor_ticks(axis,ticks)
+    axis[:minorticks] in (nothing, false) && !axis[:minorgrid] && return nothing
+    ticks = ticks[1]
+    length(ticks) < 2 && return nothing
+    
+    amin, amax = axis_limits(axis)
+    #Add one phantom tick either side of the ticks to ensure minor ticks extend to the axis limits 
+    if length(ticks) > 2
+        ratio = (ticks[3] - ticks[2])/(ticks[2] - ticks[1])
+    elseif axis[:scale] == :none
+        ratio = 1
+    else
+        return nothing
+    end
+    first_step = ticks[2] - ticks[1]
+    last_step = ticks[end] - ticks[end-1]
+    ticks =  [ticks[1] - first_step/ratio; ticks; ticks[end] + last_step*ratio]
+
+    #Default to 5 intervals between major ticks
+    n = typeof(axis[:minorticks]) <: Integer && axis[:minorticks] > 1 ? axis[:minorticks] : 5
+    minorticks = typeof(ticks[1])[]
+    for (i,hi) in enumerate(ticks[2:end])
+        lo = ticks[i]
+        append!(minorticks,collect(lo + (hi-lo)/n :(hi-lo)/n: hi - (hi-lo)/2n))
+    end
+    minorticks[amin .<= minorticks .<= amax]
+end
 
 # -------------------------------------------------------------------------
 
@@ -284,8 +328,8 @@ end
 
 
 function expand_extrema!(ex::Extrema, v::Number)
-    ex.emin = NaNMath.min(v, ex.emin)
-    ex.emax = NaNMath.max(v, ex.emax)
+    ex.emin = isfinite(v) ? min(v, ex.emin) : ex.emin
+    ex.emax = isfinite(v) ? max(v, ex.emax) : ex.emax
     ex
 end
 
@@ -294,14 +338,14 @@ function expand_extrema!(axis::Axis, v::Number)
 end
 
 # these shouldn't impact the extrema
-expand_extrema!(axis::Axis, ::Void) = axis[:extrema]
+expand_extrema!(axis::Axis, ::Nothing) = axis[:extrema]
 expand_extrema!(axis::Axis, ::Bool) = axis[:extrema]
 
 
 function expand_extrema!(axis::Axis, v::Tuple{MIN,MAX}) where {MIN<:Number,MAX<:Number}
     ex = axis[:extrema]
-    ex.emin = NaNMath.min(v[1], ex.emin)
-    ex.emax = NaNMath.max(v[2], ex.emax)
+    ex.emin = isfinite(v[1]) ? min(v[1], ex.emin) : ex.emin
+    ex.emax = isfinite(v[2]) ? max(v[2], ex.emax) : ex.emax
     ex
 end
 function expand_extrema!(axis::Axis, v::AVec{N}) where N<:Number
@@ -323,6 +367,9 @@ function expand_extrema!(sp::Subplot, d::KW)
         else
             letter == :x ? :y : letter == :y ? :x : :z
         end]
+        if letter != :z && d[:seriestype] == :straightline && any(series[:seriestype] != :straightline for series in series_list(sp)) && data[1] != data[2]
+            data = [NaN]
+        end
         axis = sp[Symbol(letter, "axis")]
 
         if isa(data, Volume)
@@ -399,27 +446,36 @@ end
 # -------------------------------------------------------------------------
 
 # push the limits out slightly
-function widen(lmin, lmax)
-    span = lmax - lmin
+function widen(lmin, lmax, scale = :identity)
+    f, invf = scalefunc(scale), invscalefunc(scale)
+    span = f(lmax) - f(lmin)
     # eps = NaNMath.max(1e-16, min(1e-2span, 1e-10))
     eps = NaNMath.max(1e-16, 0.03span)
-    lmin-eps, lmax+eps
+    invf(f(lmin)-eps), invf(f(lmax)+eps)
 end
 
-# figure out if widening is a good idea.  if there's a scale set it's too tricky,
-# so lazy out and don't widen
+# figure out if widening is a good idea.
+const _widen_seriestypes = (:line, :path, :steppre, :steppost, :sticks, :scatter, :barbins, :barhist, :histogram, :scatterbins, :scatterhist, :stepbins, :stephist, :bins2d, :histogram2d, :bar, :shape, :path3d, :scatter3d)
+
 function default_should_widen(axis::Axis)
     should_widen = false
-    if axis[:scale] == :identity && !is_2tuple(axis[:lims])
+    if !is_2tuple(axis[:lims])
         for sp in axis.sps
             for series in series_list(sp)
-                if series.d[:seriestype] in (:scatter,) || series.d[:markershape] != :none
+                if series.d[:seriestype] in _widen_seriestypes
                     should_widen = true
                 end
             end
         end
     end
     should_widen
+end
+
+function round_limits(amin,amax)
+    scale = 10^(1-round(log10(amax - amin)))
+    amin = floor(amin*scale)/scale
+    amax = ceil(amax*scale)/scale
+    amin, amax
 end
 
 # using the axis extrema and limit overrides, return the min/max value for this axis
@@ -450,8 +506,10 @@ function axis_limits(axis::Axis, should_widen::Bool = default_should_widen(axis)
         else
             amin, amax
         end
-    elseif should_widen
-        widen(amin, amax)
+    elseif should_widen && axis[:widen]
+        widen(amin, amax, axis[:scale])
+    elseif lims == :round
+        round_limits(amin,amax)
     else
         amin, amax
     end
@@ -532,12 +590,16 @@ function axis_drawing_info(sp::Subplot)
     ymin, ymax = axis_limits(yaxis)
     xticks = get_ticks(xaxis)
     yticks = get_ticks(yaxis)
+    xminorticks = get_minor_ticks(xaxis,xticks)
+    yminorticks = get_minor_ticks(yaxis,yticks)
     xaxis_segs = Segments(2)
     yaxis_segs = Segments(2)
     xtick_segs = Segments(2)
     ytick_segs = Segments(2)
     xgrid_segs = Segments(2)
     ygrid_segs = Segments(2)
+    xminorgrid_segs = Segments(2)
+    yminorgrid_segs = Segments(2)
     xborder_segs = Segments(2)
     yborder_segs = Segments(2)
 
@@ -580,6 +642,28 @@ function axis_drawing_info(sp::Subplot)
                 xaxis[:grid] && push!(xgrid_segs, (xtick, ymin), (xtick, ymax)) # vertical grid
             end
         end
+        if !(xaxis[:minorticks] in (nothing, false)) || xaxis[:minorgrid]
+            f = scalefunc(yaxis[:scale])
+            invf = invscalefunc(yaxis[:scale])
+            ticks_in = xaxis[:tick_direction] == :out ? -1 : 1
+            t1 = invf(f(ymin) + 0.01 * (f(ymax) - f(ymin)) * ticks_in)
+            t2 = invf(f(ymax) - 0.01 * (f(ymax) - f(ymin)) * ticks_in)
+            t3 = invf(f(0) + 0.01 * (f(ymax) - f(ymin)) * ticks_in)
+
+            for xminortick in xminorticks
+                if xaxis[:showaxis]
+                    tick_start, tick_stop = if sp[:framestyle] == :origin
+                        (0, t3)
+                    else
+                        xor(xaxis[:mirror], yaxis[:flip]) ? (ymax, t2) : (ymin, t1)
+                    end
+                    push!(xtick_segs, (xminortick, tick_start), (xminortick, tick_stop)) # bottom tick
+                end
+                # sp[:draw_axes_border] && push!(xaxis_segs, (xtick, ymax), (xtick, t2)) # top tick
+                xaxis[:minorgrid] && push!(xminorgrid_segs, (xminortick, ymin), (xminortick, ymax)) # vertical grid
+            end
+        end
+
 
         # yaxis
         if yaxis[:showaxis]
@@ -619,7 +703,28 @@ function axis_drawing_info(sp::Subplot)
                 yaxis[:grid] && push!(ygrid_segs, (xmin, ytick), (xmax, ytick)) # horizontal grid
             end
         end
+        if !(yaxis[:minorticks] in (nothing, false)) || yaxis[:minorgrid]
+            f = scalefunc(xaxis[:scale])
+            invf = invscalefunc(xaxis[:scale])
+            ticks_in = yaxis[:tick_direction] == :out ? -1 : 1
+            t1 = invf(f(xmin) + 0.01 * (f(xmax) - f(xmin)) * ticks_in)
+            t2 = invf(f(xmax) - 0.01 * (f(xmax) - f(xmin)) * ticks_in)
+            t3 = invf(f(0) + 0.01 * (f(xmax) - f(xmin)) * ticks_in)
+
+            for ytick in yminorticks
+                if yaxis[:showaxis]
+                    tick_start, tick_stop = if sp[:framestyle] == :origin
+                        (0, t3)
+                    else
+                        xor(yaxis[:mirror], xaxis[:flip]) ? (xmax, t2) : (xmin, t1)
+                    end
+                    push!(ytick_segs, (tick_start, ytick), (tick_stop, ytick)) # left tick
+                end
+                # sp[:draw_axes_border] && push!(yaxis_segs, (xmax, ytick), (t2, ytick)) # right tick
+                yaxis[:minorgrid] && push!(yminorgrid_segs, (xmin, ytick), (xmax, ytick)) # horizontal grid
+            end
+        end
     end
 
-    xticks, yticks, xaxis_segs, yaxis_segs, xtick_segs, ytick_segs, xgrid_segs, ygrid_segs, xborder_segs, yborder_segs
+    xticks, yticks, xaxis_segs, yaxis_segs, xtick_segs, ytick_segs, xgrid_segs, ygrid_segs, xminorgrid_segs, yminorgrid_segs, xborder_segs, yborder_segs
 end

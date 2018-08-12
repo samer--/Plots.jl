@@ -13,10 +13,6 @@ Add in functionality to Plots.jl:
     :aspect_ratio,
 =#
 
-@require Revise begin
-    Revise.track(Plots, joinpath(Pkg.dir("Plots"), "src", "backends", "inspectdr.jl"))
-end
-
 # ---------------------------------------------------------------------------
 #TODO: remove features
 const _inspectdr_attr = merge_with_base_supported([
@@ -57,7 +53,7 @@ const _inspectdr_attr = merge_with_base_supported([
   ])
 const _inspectdr_style = [:auto, :solid, :dash, :dot, :dashdot]
 const _inspectdr_seriestype = [
-        :path, :scatter, :shape #, :steppre, :steppost
+        :path, :scatter, :shape, :straightline, #, :steppre, :steppost
     ]
 #see: _allMarkers, _shape_keys
 const _inspectdr_marker = Symbol[
@@ -90,24 +86,24 @@ end
 
 # py_marker(markers::AVec) = map(py_marker, markers)
 function _inspectdr_mapglyph(markers::AVec)
-    warn("Vectors of markers are currently unsupported in InspectDR.")
+    @warn("Vectors of markers are currently unsupported in InspectDR.")
     _inspectdr_mapglyph(markers[1])
 end
 
 _inspectdr_mapglyphsize(v::Real) = v
 function _inspectdr_mapglyphsize(v::Vector)
-    warn("Vectors of marker sizes are currently unsupported in InspectDR.")
+    @warn("Vectors of marker sizes are currently unsupported in InspectDR.")
     _inspectdr_mapglyphsize(v[1])
 end
 
 _inspectdr_mapcolor(v::Colorant) = v
 function _inspectdr_mapcolor(g::PlotUtils.ColorGradient)
-    warn("Color gradients are currently unsupported in InspectDR.")
+    @warn("Color gradients are currently unsupported in InspectDR.")
     #Pick middle color:
     _inspectdr_mapcolor(g.colors[div(1+end,2)])
 end
 function _inspectdr_mapcolor(v::AVec)
-    warn("Vectors of colors are currently unsupported in InspectDR.")
+    @warn("Vectors of colors are currently unsupported in InspectDR.")
     #Pick middle color:
     _inspectdr_mapcolor(v[div(1+end,2)])
 end
@@ -152,37 +148,23 @@ end
 
 # ---------------------------------------------------------------------------
 
-function add_backend_string(::InspectDRBackend)
-    """
-    if !Plots.is_installed("InspectDR")
-        Pkg.add("InspectDR")
-    end
-    """
+#Glyph used when plotting "Shape"s:
+INSPECTDR_GLYPH_SHAPE = InspectDR.GlyphPolyline(
+    2*InspectDR.GLYPH_SQUARE.x, InspectDR.GLYPH_SQUARE.y
+)
+
+mutable struct InspecDRPlotRef
+    mplot::Union{Nothing, InspectDR.Multiplot}
+    gui::Union{Nothing, InspectDR.GtkPlot}
 end
 
-function _initialize_backend(::InspectDRBackend; kw...)
-    @eval begin
-        import InspectDR
-        export InspectDR
+_inspectdr_getmplot(::Any) = nothing
+_inspectdr_getmplot(r::InspecDRPlotRef) = r.mplot
 
-        #Glyph used when plotting "Shape"s:
-        const INSPECTDR_GLYPH_SHAPE = InspectDR.GlyphPolyline(
-            2*InspectDR.GLYPH_SQUARE.x, InspectDR.GLYPH_SQUARE.y
-        )
-
-        mutable struct InspecDRPlotRef
-            mplot::Union{Void, InspectDR.Multiplot}
-            gui::Union{Void, InspectDR.GtkPlot}
-        end
-
-        _inspectdr_getmplot(::Any) = nothing
-        _inspectdr_getmplot(r::InspecDRPlotRef) = r.mplot
-
-        _inspectdr_getgui(::Any) = nothing
-        _inspectdr_getgui(gplot::InspectDR.GtkPlot) = (gplot.destroyed ? nothing : gplot)
-        _inspectdr_getgui(r::InspecDRPlotRef) = _inspectdr_getgui(r.gui)
-    end
-end
+_inspectdr_getgui(::Any) = nothing
+_inspectdr_getgui(gplot::InspectDR.GtkPlot) = (gplot.destroyed ? nothing : gplot)
+_inspectdr_getgui(r::InspecDRPlotRef) = _inspectdr_getgui(r.gui)
+push!(_initialized_backends, :inspectdr)
 
 # ---------------------------------------------------------------------------
 
@@ -243,7 +225,11 @@ function _series_added(plt::Plot{InspectDRBackend}, series::Series)
     if nothing == plot; return; end
 
     _vectorize(v) = isa(v, Vector) ? v : collect(v) #InspectDR only supports vectors
-    x = _vectorize(series[:x]); y = _vectorize(series[:y])
+    x, y = if st == :straightline
+        straightline_data(series)
+    else
+        _vectorize(series[:x]), _vectorize(series[:y])
+    end
 
     #No support for polar grid... but can still perform polar transformation:
     if ispolar(sp)
@@ -268,6 +254,7 @@ For st in :shape:
 =#
 
     if st in (:shape,)
+        x, y = shape_data(series)
         nmax = 0
         for (i,rng) in enumerate(iter_segments(x, y))
             nmax = i
@@ -299,7 +286,7 @@ For st in :shape:
                 color = linecolor, fillcolor = fillcolor
             )
         end
-   elseif st in (:path, :scatter) #, :steppre, :steppost)
+   elseif st in (:path, :scatter, :straightline) #, :steppre, :steppost)
         #NOTE: In Plots.jl, :scatter plots have 0-linewidths (I think).
         linewidth = series[:linewidth]
         #More efficient & allows some support for markerstrokewidth:
@@ -342,8 +329,8 @@ end
 # ---------------------------------------------------------------------------
 
 function _inspectdr_setupsubplot(sp::Subplot{InspectDRBackend})
-    const plot = sp.o
-    const strip = plot.strips[1] #Only 1 strip supported with Plots.jl
+    plot = sp.o
+    strip = plot.strips[1] #Only 1 strip supported with Plots.jl
 
     xaxis = sp[:xaxis]; yaxis = sp[:yaxis]
     xgrid_show = xaxis[:grid]
@@ -401,7 +388,7 @@ end
 # called just before updating layout bounding boxes... in case you need to prep
 # for the calcs
 function _before_layout_calcs(plt::Plot{InspectDRBackend})
-    const mplot = _inspectdr_getmplot(plt.o)
+    mplot = _inspectdr_getmplot(plt.o)
     if nothing == mplot; return; end
 
     mplot.title = plt[:plot_title]
@@ -501,7 +488,7 @@ const _inspectdr_mimeformats_nodpi = Dict(
 #    "application/postscript"  => "ps", #TODO: support once Cairo supports PSSurface
     "application/pdf"         => "pdf"
 )
-_inspectdr_show(io::IO, mime::MIME, ::Void, w, h) =
+_inspectdr_show(io::IO, mime::MIME, ::Nothing, w, h) =
     throw(ErrorException("Cannot show(::IO, ...) plot - not yet generated"))
 function _inspectdr_show(io::IO, mime::MIME, mplot, w, h)
     InspectDR._show(io, mime, mplot, Float64(w), Float64(h))
@@ -518,7 +505,6 @@ for (mime, fmt) in _inspectdr_mimeformats_nodpi
         _inspectdr_show(io, mime, _inspectdr_getmplot(plt.o), plt[:size]...)
     end
 end
-_show(io::IO, mime::MIME"text/plain", plt::Plot{InspectDRBackend}) = nothing #Don't show
 
 # ----------------------------------------------------------------
 

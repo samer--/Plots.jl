@@ -3,7 +3,7 @@ module PlotsTests
 include("imgcomp.jl")
 
 # don't actually show the plots
-srand(1234)
+Random.seed!(1234)
 default(show=false, reuse=true)
 img_eps = isinteractive() ? 1e-2 : 10e-2
 
@@ -13,7 +13,7 @@ img_eps = isinteractive() ? 1e-2 : 10e-2
     @test gr() == Plots.GRBackend()
     @test backend() == Plots.GRBackend()
 
-    image_comparison_facts(:gr, eps=img_eps)
+    image_comparison_facts(:gr, eps=img_eps, skip = [25, 30])
 end
 
 
@@ -39,7 +39,7 @@ end
 #     @test plotlyjs() == Plots.PlotlyJSBackend()
 #     @test backend() == Plots.PlotlyJSBackend()
 #
-#     if is_linux() && isinteractive()
+#     if Sys.islinux() && isinteractive()
 #         image_comparison_facts(:plotlyjs,
 #             skip=[
 #                 2,  # animation (skipped for speed)
@@ -79,7 +79,7 @@ end
 #     @test backend() == Plots.PlotlyBackend()
 #
 #     # # until png generation is reliable on OSX, just test on linux
-#     # @static is_linux() && image_comparison_facts(:plotly, only=[1,3,4,7,8,9,10,11,12,14,15,20,22,23,27], eps=img_eps)
+#     # @static Sys.islinux() && image_comparison_facts(:plotly, only=[1,3,4,7,8,9,10,11,12,14,15,20,22,23,27], eps=img_eps)
 # end
 
 

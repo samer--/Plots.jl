@@ -4,7 +4,7 @@ calcMidpoints(edges::AbstractVector) = Float64[0.5 * (edges[i] + edges[i+1]) for
 "Make histogram-like bins of data"
 function binData(data, nbins)
   lo, hi = ignorenan_extrema(data)
-  edges = collect(linspace(lo, hi, nbins+1))
+  edges = collect(range(lo, stop=hi, length=nbins+1))
   midpoints = calcMidpoints(edges)
   buckets = Int[max(2, min(searchsortedfirst(edges, x), length(edges)))-1 for x in data]
   counts = zeros(Int, length(midpoints))
@@ -119,7 +119,7 @@ function replace_image_with_heatmap(z::Array{T}) where T<:Colorant
     n, m = size(z)
     # idx = 0
     colors = ColorGradient(vec(z))
-    newz = reshape(linspace(0, 1, n*m), n, m)
+    newz = reshape(range(0, stop=1, length=n*m), n, m)
     newz, colors
     # newz = zeros(n, m)
     # for i=1:n, j=1:m
@@ -192,20 +192,35 @@ function iter_segments(args...)
     SegmentsIterator(tup, n)
 end
 
+function iter_segments(series::Series)
+    x, y, z = series[:x], series[:y], series[:z]
+    if has_attribute_segments(series)
+        if series[:seriestype] in (:scatter, :scatter3d)
+            return [[i] for i in 1:length(y)]
+        else
+            return [i:(i + 1) for i in 1:(length(y) - 1)]
+        end
+    else
+        segs = UnitRange{Int}[]
+        args = is3d(series) ? (x, y, z) : (x, y)
+        for seg in iter_segments(args...)
+            push!(segs, seg)
+        end
+        return segs
+    end
+end
+
 # helpers to figure out if there are NaN values in a list of array types
-anynan(i::Int, args::Tuple) = any(a -> !isfinite(_cycle(a,i)), args)
+anynan(i::Int, args::Tuple) = any(a -> try isnan(_cycle(a,i)) catch MethodError false end, args)
 anynan(istart::Int, iend::Int, args::Tuple) = any(i -> anynan(i, args), istart:iend)
 allnan(istart::Int, iend::Int, args::Tuple) = all(i -> anynan(i, args), istart:iend)
 
-function Base.start(itr::SegmentsIterator)
-    nextidx = 1
-    if !any(isempty,itr.args) && anynan(1, itr.args)
-        _, nextidx = next(itr, 1)
+function Base.iterate(itr::SegmentsIterator, nextidx::Int = 1)
+    nextidx > itr.n && return nothing
+    if nextidx == 1 && !any(isempty,itr.args) && anynan(1, itr.args)
+        nextidx = 2
     end
-    nextidx
-end
-Base.done(itr::SegmentsIterator, nextidx::Int) = nextidx > itr.n
-function Base.next(itr::SegmentsIterator, nextidx::Int)
+
     i = istart = iend = nextidx
 
     # find the next NaN, and iend is the one before
@@ -241,7 +256,7 @@ float_extended_type(x::AbstractArray{T}) where {T<:Real} = Float64
 nop() = nothing
 notimpl() = error("This has not been implemented yet")
 
-isnothing(x::Void) = true
+isnothing(x::Nothing) = true
 isnothing(x) = false
 
 _cycle(wrapper::InputWrapper, idx::Int) = wrapper.obj
@@ -288,7 +303,8 @@ function _expand_limits(lims, x)
     lims[1] = NaNMath.min(lims[1], e1)
     lims[2] = NaNMath.max(lims[2], e2)
   # catch err
-  #   warn(err)
+  #   @warn(err)
+  catch
   end
   nothing
 end
@@ -325,7 +341,7 @@ function replaceAliases!(d::KW, aliases::Dict{Symbol,Symbol})
   end
 end
 
-createSegments(z) = collect(repmat(reshape(z,1,:),2,1))[2:end]
+createSegments(z) = collect(repeat(reshape(z,1,:),2,1))[2:end]
 
 Base.first(c::Colorant) = c
 Base.first(x::Symbol) = x
@@ -337,22 +353,21 @@ sortedkeys(d::Dict) = sort(collect(keys(d)))
 const _scale_base = Dict{Symbol, Real}(
     :log10 => 10,
     :log2 => 2,
-    :ln => e,
+    :ln => ℯ,
 )
 
-"create an (n+1) list of the outsides of heatmap rectangles"
-function heatmap_edges(v::AVec, scale::Symbol = :identity)
+function _heatmap_edges(v::AVec)
   vmin, vmax = ignorenan_extrema(v)
-  extra_min = extra_max = 0.5 * (vmax-vmin) / (length(v)-1)
-  if scale in _logScales
-      vmin > 0 || error("The axis values must be positive for a $scale scale")
-      while vmin - extra_min <= 0
-          extra_min /= _scale_base[scale]
-      end
-  end
+  extra_min = (v[2] - v[1]) / 2
+  extra_max = (v[end] - v[end - 1]) / 2
   vcat(vmin-extra_min, 0.5 * (v[1:end-1] + v[2:end]), vmax+extra_max)
 end
 
+"create an (n+1) list of the outsides of heatmap rectangles"
+function heatmap_edges(v::AVec, scale::Symbol = :identity)
+  f, invf = scalefunc(scale), invscalefunc(scale)
+  map(invf, _heatmap_edges(map(f,v)))
+end
 
 function calc_r_extrema(x, y)
     xmin, xmax = ignorenan_extrema(x)
@@ -364,7 +379,7 @@ end
 function convert_to_polar(x, y, r_extrema = calc_r_extrema(x, y))
     rmin, rmax = r_extrema
     theta, r = filter_radial_data(x, y, r_extrema)
-    r = (r - rmin) / (rmax - rmin)
+    r = (r .- rmin) ./ (rmax .- rmin)
     x = r.*cos.(theta)
     y = r.*sin.(theta)
     x, y
@@ -394,8 +409,8 @@ function fakedata(sz...)
   y
 end
 
-isijulia() = isdefined(Main, :IJulia) && Main.IJulia.inited
-isatom() = isdefined(Main, :Atom) && Main.Atom.isconnected()
+isijulia() = :IJulia in nameof.(collect(values(Base.loaded_modules)))
+isatom() = :Atom in nameof.(collect(values(Base.loaded_modules)))
 
 function is_installed(pkgstr::AbstractString)
     try
@@ -433,8 +448,8 @@ limsType(lims)                                          = :invalid
 # axis_Symbol(letter, postfix) = Symbol(letter * postfix)
 # axis_symbols(letter, postfix...) = map(s -> axis_Symbol(letter, s), postfix)
 
-Base.convert(::Type{Vector{T}}, rng::Range{T}) where {T<:Real}         = T[x for x in rng]
-Base.convert(::Type{Vector{T}}, rng::Range{S}) where {T<:Real,S<:Real} = T[x for x in rng]
+Base.convert(::Type{Vector{T}}, rng::AbstractRange{T}) where {T<:Real}         = T[x for x in rng]
+Base.convert(::Type{Vector{T}}, rng::AbstractRange{S}) where {T<:Real,S<:Real} = T[x for x in rng]
 
 Base.merge(a::AbstractVector, b::AbstractVector) = sort(unique(vcat(a,b)))
 
@@ -568,14 +583,17 @@ function get_clims(sp::Subplot)
         isfinite(clims[1]) && (zmin = clims[1])
         isfinite(clims[2]) && (zmax = clims[2])
     end
-    return zmin < zmax ? (zmin, zmax) : (0.0, 0.0)
+    return zmin < zmax ? (zmin, zmax) : (-0.1, 0.1)
 end
 
 _update_clims(zmin, zmax, emin, emax) = min(zmin, emin), max(zmax, emax)
 
 function hascolorbar(series::Series)
     st = series[:seriestype]
-    hascbar = st in (:heatmap, :contour)
+    hascbar = st == :heatmap
+    if st == :contour
+        hascbar = (isscalar(series[:levels]) ? (series[:levels] > 1) : (length(series[:levels]) > 1)) && (length(unique(Array(series[:z]))) > 1)
+    end
     if series[:marker_z] != nothing || series[:line_z] != nothing || series[:fill_z] != nothing
         hascbar = true
     end
@@ -599,33 +617,82 @@ function hascolorbar(sp::Subplot)
     hascbar
 end
 
-function get_linecolor(sp::Subplot, series::Series, i::Int = 1)
+function get_linecolor(series, i::Int = 1)
     lc = series[:linecolor]
     lz = series[:line_z]
     if lz == nothing
-        isa(lc, ColorGradient) ? lc : _cycle(lc, i)
+        isa(lc, ColorGradient) ? lc : plot_color(_cycle(lc, i))
     else
-        cmin, cmax = get_clims(sp)
+        cmin, cmax = get_clims(series[:subplot])
         grad = isa(lc, ColorGradient) ? lc : cgrad()
         grad[clamp((_cycle(lz, i) - cmin) / (cmax - cmin), 0, 1)]
     end
 end
 
-function get_fillcolor(sp::Subplot, series::Series, i::Int = 1)
+function get_linealpha(series, i::Int = 1)
+    _cycle(series[:linealpha], i)
+end
+
+function get_linewidth(series, i::Int = 1)
+    _cycle(series[:linewidth], i)
+end
+
+function get_linestyle(series, i::Int = 1)
+    _cycle(series[:linestyle], i)
+end
+
+function get_fillcolor(series, i::Int = 1)
     fc = series[:fillcolor]
     fz = series[:fill_z]
-    lz = series[:line_z]
-    if fz == nothing && lz == nothing
-        isa(fc, ColorGradient) ? fc : _cycle(fc, i)
+    if fz == nothing
+        isa(fc, ColorGradient) ? fc : plot_color(_cycle(fc, i))
     else
-        cmin, cmax = get_clims(sp)
+        cmin, cmax = get_clims(series[:subplot])
         grad = isa(fc, ColorGradient) ? fc : cgrad()
-        if fz != nothing
-            grad[clamp((_cycle(fz, i) - cmin) / (cmax - cmin), 0, 1)]
-        elseif lz != nothing
-            grad[clamp((_cycle(lz, i) - cmin) / (cmax - cmin), 0, 1)]
-        end
+        grad[clamp((_cycle(fz, i) - cmin) / (cmax - cmin), 0, 1)]
     end
+end
+
+function get_fillalpha(series, i::Int = 1)
+    _cycle(series[:fillalpha], i)
+end
+
+function get_markercolor(series, i::Int = 1)
+    mc = series[:markercolor]
+    mz = series[:marker_z]
+    if mz == nothing
+        isa(mc, ColorGradient) ? mc : plot_color(_cycle(mc, i))
+    else
+        cmin, cmax = get_clims(series[:subplot])
+        grad = isa(mc, ColorGradient) ? mc : cgrad()
+        grad[clamp((_cycle(mz, i) - cmin) / (cmax - cmin), 0, 1)]
+    end
+end
+
+function get_markeralpha(series, i::Int = 1)
+    _cycle(series[:markeralpha], i)
+end
+
+function get_markerstrokecolor(series, i::Int = 1)
+    msc = series[:markerstrokecolor]
+    isa(msc, ColorGradient) ? msc : _cycle(msc, i)
+end
+
+function get_markerstrokealpha(series, i::Int = 1)
+    _cycle(series[:markerstrokealpha], i)
+end
+
+function has_attribute_segments(series::Series)
+    # we want to check if a series needs to be split into segments just because
+    # of its attributes
+    for letter in (:x, :y, :z)
+        # If we have NaNs in the data they define the segments and
+        # SegmentsIterator is used
+        series[letter] != nothing && NaN in collect(series[letter]) && return false
+    end
+    series[:seriestype] == :shape && return false
+    # ... else we check relevant attributes if they have multiple inputs
+    return any((typeof(series[attr]) <: AbstractVector && length(series[attr]) > 1) for attr in [:seriescolor, :seriesalpha, :linecolor, :linealpha, :linewidth, :fillcolor, :fillalpha, :markercolor, :markeralpha, :markerstrokecolor, :markerstrokealpha]) || any(typeof(series[attr]) <: AbstractArray{<:Real} for attr in (:line_z, :fill_z, :marker_z))
 end
 
 # ---------------------------------------------------------------
@@ -777,8 +844,8 @@ end
 
 extendSeriesByOne(v::UnitRange{Int}, n::Int = 1) = isempty(v) ? (1:n) : (minimum(v):maximum(v)+n)
 extendSeriesByOne(v::AVec, n::Integer = 1)       = isempty(v) ? (1:n) : vcat(v, (1:n) + ignorenan_maximum(v))
-extendSeriesData(v::Range{T}, z::Real) where {T}        = extendSeriesData(float(collect(v)), z)
-extendSeriesData(v::Range{T}, z::AVec) where {T}        = extendSeriesData(float(collect(v)), z)
+extendSeriesData(v::AbstractRange{T}, z::Real) where {T}        = extendSeriesData(float(collect(v)), z)
+extendSeriesData(v::AbstractRange{T}, z::AVec) where {T}        = extendSeriesData(float(collect(v)), z)
 extendSeriesData(v::AVec{T}, z::Real) where {T}         = (push!(v, convert(T, z)); v)
 extendSeriesData(v::AVec{T}, z::AVec) where {T}         = (append!(v, convert(Vector{T}, z)); v)
 
@@ -787,7 +854,7 @@ extendSeriesData(v::AVec{T}, z::AVec) where {T}         = (append!(v, convert(Ve
 # NOTE: backends should implement the following methods to get/set the x/y/z data objects
 
 tovec(v::AbstractVector) = v
-tovec(v::Void) = zeros(0)
+tovec(v::Nothing) = zeros(0)
 
 function getxy(plt::Plot, i::Integer)
     d = plt.series_list[i].d
@@ -863,7 +930,7 @@ function attr!(series::Series; kw...)
         if haskey(_series_defaults, k)
             series[k] = v
         else
-            warn("unused key $k in series attr")
+            @warn("unused key $k in series attr")
         end
     end
     _series_updated(series[:subplot].plt, series)
@@ -877,7 +944,7 @@ function attr!(sp::Subplot; kw...)
         if haskey(_subplot_defaults, k)
             sp[k] = v
         else
-            warn("unused key $k in subplot attr")
+            @warn("unused key $k in subplot attr")
         end
     end
     sp
@@ -1051,7 +1118,7 @@ guidefont(ax::Axis) = font(
 
 # ---------------------------------------------------------------
 # converts unicode scientific notation unsupported by pgfplots and gr
-# into a format that works 
+# into a format that works
 
 function convert_sci_unicode(label::AbstractString)
     unicode_dict = Dict(
@@ -1069,10 +1136,85 @@ function convert_sci_unicode(label::AbstractString)
     "×10" => "×10^{",
     )
     for key in keys(unicode_dict)
-        label = replace(label, key, unicode_dict[key])
+        label = replace(label, key => unicode_dict[key])
     end
-    if contains(label, "10^{")
+    if occursin("10^{", label)
         label = string(label, "}")
     end
     label
+end
+
+function straightline_data(series)
+    sp = series[:subplot]
+    xl, yl = isvertical(series) ? (xlims(sp), ylims(sp)) : (ylims(sp), xlims(sp))
+    x, y = series[:x], series[:y]
+    n = length(x)
+    if n == 2
+        return straightline_data(xl, yl, x, y)
+    else
+        k, r = divrem(n, 3)
+        if r == 0
+            xdata, ydata = fill(NaN, n), fill(NaN, n)
+            for i in 1:k
+                inds = (3 * i - 2):(3 * i - 1)
+                xdata[inds], ydata[inds] = straightline_data(xl, yl, x[inds], y[inds])
+            end
+            return xdata, ydata
+        else
+            error("Misformed data. `straightline_data` either accepts vectors of length 2 or 3k. The provided series has length $n")
+        end
+    end
+end
+
+function straightline_data(xl, yl, x, y)
+    x_vals, y_vals = if y[1] == y[2]
+        if x[1] == x[2]
+            error("Two identical points cannot be used to describe a straight line.")
+        else
+            [xl[1], xl[2]], [y[1], y[2]]
+        end
+    elseif x[1] == x[2]
+        [x[1], x[2]], [yl[1], yl[2]]
+    else
+        # get a and b from the line y = a * x + b through the points given by
+        # the coordinates x and x
+        b = y[1] - (y[1] - y[2]) * x[1] / (x[1] - x[2])
+        a = (y[1] - y[2]) / (x[1] - x[2])
+        # get the data values
+        xdata = [clamp(x[1] + (x[1] - x[2]) * (ylim - y[1]) / (y[1] - y[2]), xl...) for ylim in yl]
+
+        xdata, a .* xdata .+ b
+    end
+    # expand the data outside the axis limits, by a certain factor too improve
+    # plotly(js) and interactive behaviour
+    factor = 100
+    x_vals = x_vals .+ (x_vals[2] - x_vals[1]) .* factor .* [-1, 1]
+    y_vals = y_vals .+ (y_vals[2] - y_vals[1]) .* factor .* [-1, 1]
+    return x_vals, y_vals
+end
+
+function shape_data(series)
+    sp = series[:subplot]
+    xl, yl = isvertical(series) ? (xlims(sp), ylims(sp)) : (ylims(sp), xlims(sp))
+    x, y = series[:x], series[:y]
+    factor = 100
+    for i in eachindex(x)
+        if x[i] == -Inf
+            x[i] = xl[1] - factor * (xl[2] - xl[1])
+        elseif x[i] == Inf
+            x[i] = xl[2] + factor * (xl[2] - xl[1])
+        end
+    end
+    for i in eachindex(y)
+        if y[i] == -Inf
+            y[i] = yl[1] - factor * (yl[2] - yl[1])
+        elseif y[i] == Inf
+            y[i] = yl[2] + factor * (yl[2] - yl[1])
+        end
+    end
+    return x, y
+end
+
+function construct_categorical_data(x::AbstractArray, axis::Axis)
+    map(xi -> axis[:discrete_values][searchsortedfirst(axis[:continuous_values], xi)], x)
 end

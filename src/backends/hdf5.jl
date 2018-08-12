@@ -28,10 +28,6 @@ Read from .hdf5 file using:
     - Should be reliable for archival purposes.
 ==#
 
-@require Revise begin
-    Revise.track(Plots, joinpath(Pkg.dir("Plots"), "src", "backends", "hdf5.jl")) 
-end
-
 import FixedPointNumbers: N0f8 #In core Julia
 
 #Dispatch types:
@@ -39,7 +35,7 @@ struct HDF5PlotNative; end #Indentifies a data element that can natively be hand
 struct HDF5CTuple; end #Identifies a "complex" tuple structure
 
 mutable struct HDF5Plot_PlotRef
-	ref::Union{Plot, Void}
+	ref::Union{Plot, Nothing}
 end
 
 
@@ -97,7 +93,7 @@ const _hdf5_attr = merge_with_base_supported([
     :colorbar_title,
   ])
 const _hdf5_seriestype = [
-        :path, :steppre, :steppost, :shape,
+        :path, :steppre, :steppost, :shape, :straightline,
         :scatter, :hexbin, #:histogram2d, :histogram,
         # :bar,
         :heatmap, :pie, :image,
@@ -108,12 +104,35 @@ const _hdf5_marker = vcat(_allMarkers, :pixel)
 const _hdf5_scale = [:identity, :ln, :log2, :log10]
 is_marker_supported(::HDF5Backend, shape::Shape) = true
 
-function add_backend_string(::HDF5Backend)
-    """
-    if !Plots.is_installed("HDF5")
-        Pkg.add("HDF5")
-    end
-    """
+if length(HDF5PLOT_MAP_TELEM2STR) < 1
+    #Possible element types of high-level data types:
+    telem2str = Dict{String, Type}(
+        "NATIVE" => HDF5PlotNative,
+        "VOID" => Nothing,
+        "BOOL" => Bool,
+        "SYMBOL" => Symbol,
+        "TUPLE" => Tuple,
+        "CTUPLE" => HDF5CTuple, #Tuple of complex structures
+        "RGBA" => ARGB{N0f8},
+        "EXTREMA" => Extrema,
+        "LENGTH" => Length,
+        "ARRAY" => Array, #Dict won't allow Array to be key in HDF5PLOT_MAP_TELEM2STR
+
+        #Sub-structure types:
+        "FONT" => Font,
+        "BOUNDINGBOX" => BoundingBox,
+        "GRIDLAYOUT" => GridLayout,
+        "ROOTLAYOUT" => RootLayout,
+        "SERIESANNOTATIONS" => SeriesAnnotations,
+#                "PLOTTEXT" => PlotText,
+        "COLORGRADIENT" => ColorGradient,
+        "AXIS" => Axis,
+        "SURFACE" => Surface,
+        "SUBPLOT" => Subplot,
+        "NULLABLE" => Nullable,
+    )
+    merge!(HDF5PLOT_MAP_STR2TELEM, telem2str)
+    merge!(HDF5PLOT_MAP_TELEM2STR, Dict{Type, String}(v=>k for (k,v) in HDF5PLOT_MAP_STR2TELEM))
 end
 
 
@@ -140,43 +159,6 @@ end
 #==
 ===============================================================================#
 
-function _initialize_backend(::HDF5Backend)
-    @eval begin
-        import HDF5
-        export HDF5
-        if length(HDF5PLOT_MAP_TELEM2STR) < 1
-            #Possible element types of high-level data types:
-            const telem2str = Dict{String, Type}(
-                "NATIVE" => HDF5PlotNative,
-                "VOID" => Void,
-                "BOOL" => Bool,
-                "SYMBOL" => Symbol,
-                "TUPLE" => Tuple,
-                "CTUPLE" => HDF5CTuple, #Tuple of complex structures
-                "RGBA" => ARGB{N0f8},
-                "EXTREMA" => Extrema,
-                "LENGTH" => Length,
-                "ARRAY" => Array, #Dict won't allow Array to be key in HDF5PLOT_MAP_TELEM2STR
-
-                #Sub-structure types:
-                "FONT" => Font,
-                "BOUNDINGBOX" => BoundingBox,
-                "GRIDLAYOUT" => GridLayout,
-                "ROOTLAYOUT" => RootLayout,
-                "SERIESANNOTATIONS" => SeriesAnnotations,
-#                "PLOTTEXT" => PlotText,
-                "COLORGRADIENT" => ColorGradient,
-                "AXIS" => Axis,
-                "SUBPLOT" => Subplot,
-                "NULLABLE" => Nullable,
-            )
-            merge!(HDF5PLOT_MAP_STR2TELEM, telem2str)
-            merge!(HDF5PLOT_MAP_TELEM2STR, Dict{Type, String}(v=>k for (k,v) in HDF5PLOT_MAP_STR2TELEM))
-        end
-    end
-end
-
-# ---------------------------------------------------------------------------
 
 # Create the window/figure for this backend.
 function _create_backend_figure(plt::Plot{HDF5Backend})
@@ -239,15 +221,11 @@ end
 
 # ----------------------------------------------------------------
 
-_show(io::IO, mime::MIME"text/plain", plt::Plot{HDF5Backend}) = nothing #Don't show
-
-# ----------------------------------------------------------------
-
 # Display/show the plot (open a GUI window, or browser page, for example).
 function _display(plt::Plot{HDF5Backend})
     msg = "HDF5 interface does not support `display()` function."
     msg *= "\nUse `Plots.hdf5plot_write(::String)` method to write to .HDF5 \"plot\" file instead."
-    warn(msg)
+    @warn(msg)
     return
 end
 
@@ -292,7 +270,7 @@ function _hdf5plot_writecount(grp, n::Int) #Write directly to group
 end
 function _hdf5plot_gwritefields(grp, k::String, v)
     grp = HDF5.g_create(grp, k)
-    for _k in fieldnames(v)
+    for _k in fieldnames(typeof(v))
         _v = getfield(v, _k)
         kstr = string(_k)
         _hdf5plot_gwrite(grp, kstr, _v)
@@ -315,12 +293,12 @@ end
 #=
 function _hdf5plot_gwrite(grp, k::String, v::Array{Any})
 #    @show grp, k
-    warn("Cannot write Array: $k=$v")
+    @warn("Cannot write Array: $k=$v")
 end
 =#
-function _hdf5plot_gwrite(grp, k::String, v::Void)
+function _hdf5plot_gwrite(grp, k::String, v::Nothing)
     grp[k] = 0
-    _hdf5plot_writetype(grp, k, Void)
+    _hdf5plot_writetype(grp, k, Nothing)
 end
 function _hdf5plot_gwrite(grp, k::String, v::Bool)
     grp[k] = Int(v)
@@ -345,9 +323,9 @@ function _hdf5plot_gwrite(grp, k::String, v::Tuple)
     #NOTE: _hdf5plot_overwritetype overwrites "Array" type with "Tuple".
 end
 function _hdf5plot_gwrite(grp, k::String, d::Dict)
-#    warn("Cannot write dict: $k=$d")
+#    @warn("Cannot write dict: $k=$d")
 end
-function _hdf5plot_gwrite(grp, k::String, v::Range)
+function _hdf5plot_gwrite(grp, k::String, v::AbstractRange)
     _hdf5plot_gwrite(grp, k, collect(v)) #For now
 end
 function _hdf5plot_gwrite(grp, k::String, v::ARGB{N0f8})
@@ -368,7 +346,7 @@ function _hdf5plot_gwritearray(grp, k::String, v::Array{T}) where T
     sz = size(v)
 
     for iter in eachindex(v)
-        coord = ind2sub(sz, iter)
+        coord = LinearIndices(sz, iter)
         elem = v[iter]
         idxstr = join(coord, "_")
         _hdf5plot_gwrite(vgrp, "v$idxstr", v[iter])
@@ -407,15 +385,20 @@ function _hdf5plot_gwrite(grp, k::String, v::Axis)
     _hdf5plot_writetype(grp, Axis)
     return
 end
-#TODO: "Properly" support Nullable using _hdf5plot_writetype?
-function _hdf5plot_gwrite(grp, k::String, v::Nullable)
-    if isnull(v)
-        _hdf5plot_gwrite(grp, k, nothing)
-    else
-        _hdf5plot_gwrite(grp, k, v.value)
-    end
-    return
+function _hdf5plot_gwrite(grp, k::String, v::Surface)
+	grp = HDF5.g_create(grp, k)
+	_hdf5plot_gwrite(grp, "data2d", v.surf)
+	_hdf5plot_writetype(grp, Surface)
 end
+# #TODO: "Properly" support Nullable using _hdf5plot_writetype?
+# function _hdf5plot_gwrite(grp, k::String, v::Nullable)
+#     if isnull(v)
+#         _hdf5plot_gwrite(grp, k, nothing)
+#     else
+#         _hdf5plot_gwrite(grp, k, v.value)
+#     end
+#     return
+# end
 
 function _hdf5plot_gwrite(grp, k::String, v::SeriesAnnotations)
     #Currently no support for SeriesAnnotations
@@ -483,7 +466,7 @@ function _hdf5plot_readcount(grp) #Read directly from group
 end
 
 _hdf5plot_convert(T::Type{HDF5PlotNative}, v) = v
-_hdf5plot_convert(T::Type{Void}, v) = nothing
+_hdf5plot_convert(T::Type{Nothing}, v) = nothing
 _hdf5plot_convert(T::Type{Bool}, v) = (v!=0)
 _hdf5plot_convert(T::Type{Symbol}, v) = Symbol(v)
 _hdf5plot_convert(T::Type{Tuple}, v) = tuple(v...) #With Vector{T<:Number}
@@ -528,7 +511,7 @@ function _hdf5plot_read(grp, k::String, T::Type{Array}, dtid) #ANY
     result = Array{Any}(sz)
 
     for iter in eachindex(result)
-        coord = ind2sub(sz, iter)
+        coord = LinearIndices(sz, iter)
         idxstr = join(coord, "_")
         result[iter] = _hdf5plot_read(grp, "v$idxstr")
     end
@@ -577,6 +560,11 @@ function _hdf5plot_read(grp, k::String, T::Type{Axis}, dtid)
     _hdf5plot_read(grp, kwlist)
     return Axis([], kwlist)
 end
+function _hdf5plot_read(grp, k::String, T::Type{Surface}, dtid)
+    grp = HDF5.g_open(grp, k)
+    data2d = _hdf5plot_read(grp, "data2d")
+    return Surface(data2d)
+end
 function _hdf5plot_read(grp, k::String, T::Type{Subplot}, dtid)
     grp = HDF5.g_open(grp, k)
     idx = _hdf5plot_read(grp, "index")
@@ -598,7 +586,7 @@ function _hdf5plot_read(grp, d::Dict)
         catch e
             @show e
             @show grp
-            warn("Could not read field $k")
+            @warn("Could not read field $k")
         end
     end
     return

@@ -146,7 +146,8 @@ function Base.display(::PlotsDisplay, plt::Plot)
 end
 
 # override the REPL display to open a gui window
-Base.display(::Base.REPL.REPLDisplay, ::MIME"text/plain", plt::Plot) = gui(plt)
+using REPL
+Base.display(::REPL.REPLDisplay, ::MIME"text/plain", plt::Plot) = gui(plt)
 
 
 _do_plot_show(plt, showval::Bool) = showval && gui(plt)
@@ -157,25 +158,16 @@ end
 
 # ---------------------------------------------------------
 
-const _mimeformats = Dict(
-    "application/eps"         => "eps",
-    "image/eps"               => "eps",
-    "application/pdf"         => "pdf",
-    "image/png"               => "png",
-    "application/postscript"  => "ps",
-    "image/svg+xml"           => "svg",
-    "text/plain"              => "txt",
-    "application/x-tex"       => "tex",
-)
-
 const _best_html_output_type = KW(
     :pyplot => :png,
     :unicodeplots => :txt,
-    :glvisualize => :png
+    :glvisualize => :png,
+    :plotlyjs => :html,
+    :plotly => :html
 )
 
 # a backup for html... passes to svg or png depending on the html_output_format arg
-function Base.show(io::IO, ::MIME"text/html", plt::Plot)
+function _show(io::IO, ::MIME"text/html", plt::Plot)
     output_type = Symbol(plt.attr[:html_output_format])
     if output_type == :auto
         output_type = get(_best_html_output_type, backend_name(plt.backend), :svg)
@@ -189,25 +181,35 @@ function Base.show(io::IO, ::MIME"text/html", plt::Plot)
     elseif output_type == :txt
         show(io, MIME("text/plain"), plt)
     else
-        error("only png or svg allowed. got: $output_type")
+        error("only png or svg allowed. got: $(repr(output_type))")
     end
 end
 
-function _show(io::IO, m, plt::Plot{B}) where B
-    # Base.show_backtrace(STDOUT, backtrace())
-    warn("_show is not defined for this backend. m=", string(m))
+# delegate showable to _show instead
+function Base.showable(m::M, plt::P) where {M<:MIME, P<:Plot}
+    return hasmethod(_show, Tuple{IO, M, P})
 end
+
 function _display(plt::Plot)
-    warn("_display is not defined for this backend.")
+    @warn("_display is not defined for this backend.")
 end
 
 # for writing to io streams... first prepare, then callback
-for mime in keys(_mimeformats)
-    @eval function Base.show(io::IO, m::MIME{Symbol($mime)}, plt::Plot{B}) where B
-        prepare_output(plt)
-        _show(io, m, plt)
+for mime in ("text/plain", "text/html", "image/png", "image/eps", "image/svg+xml",
+             "application/eps", "application/pdf", "application/postscript",
+             "application/x-tex")
+    @eval function Base.show(io::IO, m::MIME{Symbol($mime)}, plt::Plot)
+        if haskey(io, :juno_plotsize)
+          showjuno(io, m, plt)
+        else
+          prepare_output(plt)
+          _show(io, m, plt)
+        end
     end
 end
+
+# default text/plain for all backends
+_show(io::IO, ::MIME{Symbol("text/plain")}, plt::Plot) = show(io, plt)
 
 "Close all open gui windows of the current backend"
 closeall() = closeall(backend())
@@ -216,9 +218,10 @@ closeall() = closeall(backend())
 # ---------------------------------------------------------
 # A backup, if no PNG generation is defined, is to try to make a PDF and use FileIO to convert
 
+const PDFBackends = Union{PGFPlotsBackend,PlotlyJSBackend,PyPlotBackend,InspectDRBackend,GRBackend}
 if is_installed("FileIO")
     @eval import FileIO
-    function _show(io::IO, ::MIME"image/png", plt::Plot)
+    function _show(io::IO, ::MIME"image/png", plt::Plot{<:PDFBackends})
         fn = tempname()
 
         # first save a pdf file
@@ -232,7 +235,7 @@ if is_installed("FileIO")
         FileIO.save(pngfn, s)
 
         # now write from the file
-        write(io, readstring(open(pngfn)))
+        write(io, read(open(pngfn), String))
     end
 end
 
@@ -252,81 +255,26 @@ end
 #
 # html_output_format("svg")
 
-# ---------------------------------------------------------
-# IJulia
-# ---------------------------------------------------------
-
-const _ijulia_output = String["text/html"]
-
-@require IJulia begin
-    if IJulia.inited
-        export set_ijulia_output
-
-        function set_ijulia_output(mimestr::AbstractString)
-            # info("Setting IJulia output format to $mimestr")
-            global _ijulia_output
-            _ijulia_output[1] = mimestr
-        end
-        function IJulia.display_dict(plt::Plot)
-            global _ijulia_output
-            Dict{String, String}(_ijulia_output[1] => sprint(show, _ijulia_output[1], plt))
-        end
-
-        # default text/plain passes to html... handles Interact issues
-        function Base.show(io::IO, m::MIME"text/plain", plt::Plot)
-            show(io, MIME("text/html"), plt)
-        end
-
-        ENV["MPLBACKEND"] = "Agg"
-        set_ijulia_output("text/html")
-    end
-end
 
 # ---------------------------------------------------------
 # Atom PlotPane
 # ---------------------------------------------------------
-@require Juno begin
-    import Hiccup, Media
+function showjuno(io::IO, m, plt)
+    sz = plt[:size]
+    dpi = plt[:dpi]
+    thickness_scaling = plt[:thickness_scaling]
 
-    if Juno.isactive()
-        Media.media(Plot, Media.Plot)
+    jsize = get(io, :juno_plotsize, [400, 500])
 
+    scale = minimum(jsize[i] / sz[i] for i in 1:2)
+    plt[:size] = (s * scale for s in sz)
+    plt[:dpi] = Plots.DPI
+    plt[:thickness_scaling] *= scale
 
-        _show(io::IO, m::MIME"text/plain", plt::Plot{B}) where {B} = print(io, "Plot{$B}()")
+    prepare_output(plt)
+    _show(io, m, plt)
 
-        function Juno.render(e::Juno.Editor, plt::Plot)
-            Juno.render(e, nothing)
-        end
-
-        if get(ENV, "PLOTS_USE_ATOM_PLOTPANE", true) in (true, 1, "1", "true", "yes")
-            function Juno.render(pane::Juno.PlotPane, plt::Plot)
-                # temporarily overwrite size to be Atom.plotsize
-                sz = plt[:size]
-                jsize = Juno.plotsize()
-                jsize[1] == 0 && (jsize[1] = 400)
-                jsize[2] == 0 && (jsize[2] = 500)
-
-                plt[:size] = jsize
-                Juno.render(pane, HTML(stringmime(MIME("text/html"), plt)))
-                plt[:size] = sz
-            end
-            # special handling for PlotlyJS
-            function Juno.render(pane::Juno.PlotPane, plt::Plot{PlotlyJSBackend})
-                display(Plots.PlotsDisplay(), plt)
-            end
-        else
-            function Juno.render(pane::Juno.PlotPane, plt::Plot)
-                display(Plots.PlotsDisplay(), plt)
-                s = "PlotPane turned off.  Unset ENV[\"PLOTS_USE_ATOM_PLOTPANE\"] and restart Julia to enable it."
-                Juno.render(pane, HTML(s))
-            end
-        end
-
-        # special handling for plotly... use PlotsDisplay
-        function Juno.render(pane::Juno.PlotPane, plt::Plot{PlotlyBackend})
-            display(Plots.PlotsDisplay(), plt)
-            s = "PlotPane turned off.  The plotly backend cannot render in the PlotPane due to javascript issues. Plotlyjs is similar to plotly and is compatible with the plot pane."
-            Juno.render(pane, HTML(s))
-        end
-    end
+    plt[:size] = sz
+    plt[:dpi] = dpi
+    plt[:thickness_scaling] = thickness_scaling
 end

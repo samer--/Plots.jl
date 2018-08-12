@@ -15,7 +15,7 @@ function add_non_underscore_aliases!(aliases::Dict{Symbol,Symbol})
     for (k,v) in aliases
         s = string(k)
         if '_' in s
-            aliases[Symbol(replace(s, "_", ""))] = v
+            aliases[Symbol(replace(s, "_" => ""))] = v
         end
     end
 end
@@ -176,7 +176,7 @@ const _positionAliases = Dict{Symbol,Symbol}(
 
 const _allScales = [:identity, :ln, :log2, :log10, :asinh, :sqrt]
 const _logScales = [:ln, :log2, :log10]
-const _logScaleBases = Dict(:ln => e, :log2 => 2.0, :log10 => 10.0)
+const _logScaleBases = Dict(:ln => ℯ, :log2 => 2.0, :log10 => 10.0)
 const _scaleAliases = Dict{Symbol,Symbol}(
     :none => :identity,
     :log  => :log10,
@@ -188,13 +188,13 @@ const _allGridSyms = [:x, :y, :z,
                     :all, :both, :on, :yes, :show,
                     :none, :off, :no, :hide]
 const _allGridArgs = [_allGridSyms; string.(_allGridSyms); nothing]
-hasgrid(arg::Void, letter) = false
+hasgrid(arg::Nothing, letter) = false
 hasgrid(arg::Bool, letter) = arg
 function hasgrid(arg::Symbol, letter)
     if arg in _allGridSyms
-        arg in (:all, :both, :on) || contains(string(arg), string(letter))
+        arg in (:all, :both, :on) || occursin(string(letter), string(arg))
     else
-        warn("Unknown grid argument $arg; $(Symbol(letter, :grid)) was set to `true` instead.")
+        @warn("Unknown grid argument $arg; $(Symbol(letter, :grid)) was set to `true` instead.")
         true
     end
 end
@@ -206,13 +206,13 @@ const _allShowaxisSyms = [:x, :y, :z,
                     :all, :both, :on, :yes, :show,
                     :off, :no, :hide]
 const _allShowaxisArgs = [_allGridSyms; string.(_allGridSyms)]
-showaxis(arg::Void, letter) = false
+showaxis(arg::Nothing, letter) = false
 showaxis(arg::Bool, letter) = arg
 function showaxis(arg::Symbol, letter)
     if arg in _allGridSyms
-        arg in (:all, :both, :on, :yes) || contains(string(arg), string(letter))
+        arg in (:all, :both, :on, :yes) || occursin(string(letter), string(arg))
     else
-        warn("Unknown showaxis argument $arg; $(Symbol(letter, :showaxis)) was set to `true` instead.")
+        @warn("Unknown showaxis argument $arg; $(Symbol(letter, :showaxis)) was set to `true` instead.")
         true
     end
 end
@@ -272,6 +272,7 @@ const _series_defaults = KW(
     :normalize         => false,     # do we want a normalized histogram?
     :weights           => nothing,   # optional weights for histograms (1D and 2D)
     :contours          => false,     # add contours to 3d surface and wireframe plots
+    :contour_labels    => false,
     :match_dimensions  => false,     # do rows match x (true) or y (false) for heatmap/image/spy? see issue 196
                                      # this ONLY effects whether or not the z-matrix is transposed for a heatmap display!
     :subplot           => :auto,     # which subplot(s) does this series belong to?
@@ -300,6 +301,7 @@ const _plot_defaults = KW(
     :inset_subplots              => nothing,   # optionally pass a vector of (parent,bbox) tuples which are
                                                # the parent layout and the relative bounding box of inset subplots
     :dpi                         => DPI,        # dots per inch for images, etc
+    :thickness_scaling           => 1,
     :display_type                => :auto,
     :extra_kwargs                => KW(),
 )
@@ -378,8 +380,15 @@ const _axis_defaults = KW(
     :gridalpha                => 0.1,
     :gridstyle                => :solid,
     :gridlinewidth            => 0.5,
+    :foreground_color_minor_grid => :match,            # grid color
+    :minorgridalpha           => 0.05,
+    :minorgridstyle           => :solid,
+    :minorgridlinewidth       => 0.5,
     :tick_direction           => :in,
+    :minorticks               => false,
+    :minorgrid                => false,
     :showaxis                 => true,
+    :widen                    => true,
 )
 
 const _suppress_warnings = Set{Symbol}([
@@ -495,6 +504,8 @@ add_aliases(:foreground_color_subplot, :fg_subplot, :fgsubplot, :fgcolor_subplot
                             :foreground_colour_subplot, :fgcolour_subplot, :fg_colour_subplot)
 add_aliases(:foreground_color_grid, :fg_grid, :fggrid, :fgcolor_grid, :fg_color_grid, :foreground_grid,
                             :foreground_colour_grid, :fgcolour_grid, :fg_colour_grid, :gridcolor)
+add_aliases(:foreground_color_minor_grid, :fg_minor_grid, :fgminorgrid, :fgcolor_minorgrid, :fg_color_minorgrid, :foreground_minorgrid,
+                            :foreground_colour_minor_grid, :fgcolour_minorgrid, :fg_colour_minor_grid, :minorgridcolor)
 add_aliases(:foreground_color_title, :fg_title, :fgtitle, :fgcolor_title, :fg_color_title, :foreground_title,
                             :foreground_colour_title, :fgcolour_title, :fg_colour_title, :titlecolor)
 add_aliases(:foreground_color_axis, :fg_axis, :fgaxis, :fgcolor_axis, :fg_color_axis, :foreground_axis,
@@ -571,9 +582,12 @@ add_aliases(:inset_subplots, :inset, :floating)
 add_aliases(:stride, :wirefame_stride, :surface_stride, :surf_str, :str)
 add_aliases(:gridlinewidth, :gridwidth, :grid_linewidth, :grid_width, :gridlw, :grid_lw)
 add_aliases(:gridstyle, :grid_style, :gridlinestyle, :grid_linestyle, :grid_ls, :gridls)
+add_aliases(:minorgridlinewidth, :minorgridwidth, :minorgrid_linewidth, :minorgrid_width, :minorgridlw, :minorgrid_lw)
+add_aliases(:minorgridstyle, :minorgrid_style, :minorgridlinestyle, :minorgrid_linestyle, :minorgrid_ls, :minorgridls)
 add_aliases(:framestyle, :frame_style, :frame, :axesstyle, :axes_style, :boxstyle, :box_style, :box, :borderstyle, :border_style, :border)
 add_aliases(:tick_direction, :tickdirection, :tick_dir, :tickdir, :tick_orientation, :tickorientation, :tick_or, :tickor)
 add_aliases(:camera, :cam, :viewangle, :view_angle)
+add_aliases(:contour_labels, :contourlabels, :clabels, :clabs)
 
 # add all pluralized forms to the _keyAliases dict
 for arg in keys(_series_defaults)
@@ -650,6 +664,7 @@ function handleColors!(d::KW, arg, csym::Symbol)
             d[csym] = c
         end
         return true
+    catch
     end
     false
 end
@@ -689,7 +704,7 @@ function processLineArg(d::KW, arg)
 
     # color
     elseif !handleColors!(d, arg, :linecolor)
-        warn("Skipped line arg $arg.")
+        @warn("Skipped line arg $arg.")
 
     end
 end
@@ -725,7 +740,7 @@ function processMarkerArg(d::KW, arg)
 
     # markercolor
     elseif !handleColors!(d, arg, :markercolor)
-        warn("Skipped marker arg $arg.")
+        @warn("Skipped marker arg $arg.")
 
     end
 end
@@ -748,6 +763,10 @@ function processFillArg(d::KW, arg)
     # fillalpha
     elseif allAlphas(arg)
         d[:fillalpha] = arg
+
+    # fillrange provided as vector or number
+    elseif typeof(arg) <: Union{AbstractArray{<:Real}, Real}
+        d[:fillrange] = arg
 
     elseif !handleColors!(d, arg, :fillcolor)
 
@@ -781,8 +800,41 @@ function processGridArg!(d::KW, arg, letter)
 
     # color
     elseif !handleColors!(d, arg, Symbol(letter, :foreground_color_grid))
-        warn("Skipped grid arg $arg.")
+        @warn("Skipped grid arg $arg.")
 
+    end
+end
+
+function processMinorGridArg!(d::KW, arg, letter)
+    if arg in _allGridArgs || isa(arg, Bool)
+        d[Symbol(letter, :minorgrid)] = hasgrid(arg, letter)
+
+    elseif allStyles(arg)
+        d[Symbol(letter, :minorgridstyle)] = arg
+        d[Symbol(letter, :minorgrid)] = true
+
+    elseif typeof(arg) <: Stroke
+        arg.width == nothing || (d[Symbol(letter, :minorgridlinewidth)] = arg.width)
+        arg.color == nothing || (d[Symbol(letter, :foreground_color_minor_grid)] = arg.color in (:auto, :match) ? :match : plot_color(arg.color))
+        arg.alpha == nothing || (d[Symbol(letter, :minorgridalpha)] = arg.alpha)
+        arg.style == nothing || (d[Symbol(letter, :minorgridstyle)] = arg.style)
+        d[Symbol(letter, :minorgrid)] = true
+
+    # linealpha
+    elseif allAlphas(arg)
+        d[Symbol(letter, :minorgridalpha)] = arg
+        d[Symbol(letter, :minorgrid)] = true
+
+    # linewidth
+    elseif allReals(arg)
+        d[Symbol(letter, :minorgridlinewidth)] = arg
+        d[Symbol(letter, :minorgrid)] = true
+
+    # color
+    elseif handleColors!(d, arg, Symbol(letter, :foreground_color_minor_grid))
+        d[Symbol(letter, :minorgrid)] = true
+    else
+        @warn("Skipped grid arg $arg.")
     end
 end
 
@@ -815,7 +867,7 @@ function processFontArg!(d::KW, fontname::Symbol, arg)
     elseif typeof(arg) <: Real
         d[Symbol(fontname, :rotation)] = convert(Float64, arg)
     else
-        warn("Skipped font arg: $arg ($(typeof(arg)))")
+        @warn("Skipped font arg: $arg ($(typeof(arg)))")
     end
 end
 
@@ -885,7 +937,21 @@ function preprocessArgs!(d::KW)
             processGridArg!(d, arg, letter)
         end
     end
-
+    # handle minor grid args common to all axes
+    args = pop!(d, :minorgrid, ())
+    for arg in wraptuple(args)
+        for letter in (:x, :y, :z)
+            processMinorGridArg!(d, arg, letter)
+        end
+    end
+    # handle individual axes grid args
+    for letter in (:x, :y, :z)
+        gridsym = Symbol(letter, :minorgrid)
+        args = pop!(d, gridsym, ())
+        for arg in wraptuple(args)
+            processMinorGridArg!(d, arg, letter)
+        end
+    end
     # fonts
     for fontname in (:titlefont, :legendfont)
         args = pop!(d, fontname, ())
@@ -984,7 +1050,7 @@ function preprocessArgs!(d::KW)
     # warnings for moved recipes
     st = get(d, :seriestype, :path)
     if st in (:boxplot, :violin, :density) && !isdefined(Main, :StatPlots)
-        warn("seriestype $st has been moved to StatPlots.  To use: \`Pkg.add(\"StatPlots\"); using StatPlots\`")
+        @warn("seriestype $st has been moved to StatPlots.  To use: \`Pkg.add(\"StatPlots\"); using StatPlots\`")
     end
 
     return
@@ -1004,19 +1070,32 @@ function extractGroupArgs(v::AVec, args...; legendEntry = string)
     groupLabels = sort(collect(unique(v)))
     n = length(groupLabels)
     if n > 100
-        warn("You created n=$n groups... Is that intended?")
+        @warn("You created n=$n groups... Is that intended?")
     end
     groupIds = Vector{Int}[filter(i -> v[i] == glab, 1:length(v)) for glab in groupLabels]
     GroupBy(map(legendEntry, groupLabels), groupIds)
 end
 
-legendEntryFromTuple(ns::Tuple) = string(("$n " for n in ns)...)
+legendEntryFromTuple(ns::Tuple) = join(ns, ' ')
 
 # this is when given a tuple of vectors of values to group by
 function extractGroupArgs(vs::Tuple, args...)
-    (vs == ()) && return GroupBy([""], [1:size(args[1],1)])
-    v = collect(zip(vs...))
+    isempty(vs) && return GroupBy([""], [1:size(args[1],1)])
+    v = map(tuple, vs...)
     extractGroupArgs(v, args...; legendEntry = legendEntryFromTuple)
+end
+
+# allow passing NamedTuples for a named legend entry
+@require NamedTuples = "73a701b4-84e1-5df0-88ff-1968ee2ee8dc" begin
+    legendEntryFromTuple(ns::NamedTuples.NamedTuple) =
+        join(["$k = $v" for (k, v) in zip(keys(ns), values(ns))], ", ")
+
+    function extractGroupArgs(vs::NamedTuples.NamedTuple, args...)
+        isempty(vs) && return GroupBy([""], [1:size(args[1],1)])
+        NT = eval(:(NamedTuples.@NT($(keys(vs)...)))){map(eltype, vs)...}
+        v = map(NT, vs...)
+        extractGroupArgs(v, args...; legendEntry = legendEntryFromTuple)
+    end
 end
 
 # expecting a mapping of "group label" to "group indices"
@@ -1063,7 +1142,7 @@ function warnOnUnsupported_args(pkg::AbstractBackend, d::KW)
     if !isempty(_to_warn)
         for k in sort(collect(_to_warn))
             push!(already_warned, k)
-            warn("Keyword argument $k not supported with $pkg.  Choose from: $(supported_attrs(pkg))")
+            @warn("Keyword argument $k not supported with $pkg.  Choose from: $(supported_attrs(pkg))")
         end
     end
 end
@@ -1074,13 +1153,13 @@ end
 
 function warnOnUnsupported(pkg::AbstractBackend, d::KW)
     if !is_seriestype_supported(pkg, d[:seriestype])
-        warn("seriestype $(d[:seriestype]) is unsupported with $pkg.  Choose from: $(supported_seriestypes(pkg))")
+        @warn("seriestype $(d[:seriestype]) is unsupported with $pkg.  Choose from: $(supported_seriestypes(pkg))")
     end
     if !is_style_supported(pkg, d[:linestyle])
-        warn("linestyle $(d[:linestyle]) is unsupported with $pkg.  Choose from: $(supported_styles(pkg))")
+        @warn("linestyle $(d[:linestyle]) is unsupported with $pkg.  Choose from: $(supported_styles(pkg))")
     end
     if !is_marker_supported(pkg, d[:markershape])
-        warn("markershape $(d[:markershape]) is unsupported with $pkg.  Choose from: $(supported_markers(pkg))")
+        @warn("markershape $(d[:markershape]) is unsupported with $pkg.  Choose from: $(supported_markers(pkg))")
     end
 end
 
@@ -1089,7 +1168,7 @@ function warnOnUnsupported_scales(pkg::AbstractBackend, d::KW)
         if haskey(d, k)
             v = d[k]
             if !is_scale_supported(pkg, v)
-                warn("scale $v is unsupported with $pkg.  Choose from: $(supported_scales(pkg))")
+                @warn("scale $v is unsupported with $pkg.  Choose from: $(supported_scales(pkg))")
             end
         end
     end
@@ -1110,7 +1189,7 @@ function convertLegendValue(val::Symbol)
     end
 end
 convertLegendValue(val::Bool) = val ? :best : :none
-convertLegendValue(val::Void) = :none
+convertLegendValue(val::Nothing) = :none
 convertLegendValue(v::Tuple{S,T}) where {S<:Real, T<:Real} = v
 convertLegendValue(v::AbstractArray) = map(convertLegendValue, v)
 
@@ -1200,6 +1279,7 @@ const _match_map2 = KW(
     :foreground_color_axis    => :foreground_color_subplot,
     :foreground_color_border  => :foreground_color_subplot,
     :foreground_color_grid    => :foreground_color_subplot,
+    :foreground_color_minor_grid=> :foreground_color_subplot,
     :foreground_color_guide   => :foreground_color_subplot,
     :foreground_color_text    => :foreground_color_subplot,
     :fontfamily_subplot       => :fontfamily,
@@ -1387,6 +1467,7 @@ function _update_axis_colors(axis::Axis)
     color_or_nothing!(axis.d, :foreground_color_guide)
     color_or_nothing!(axis.d, :foreground_color_text)
     color_or_nothing!(axis.d, :foreground_color_grid)
+    color_or_nothing!(axis.d, :foreground_color_minor_grid)
     return
 end
 
@@ -1431,18 +1512,18 @@ end
 
 
 # converts a symbol or string into a colorant (Colors.RGB), and assigns a color automatically
-function getSeriesRGBColor(c, α, sp::Subplot, n::Int)
+function getSeriesRGBColor(c, sp::Subplot, n::Int)
     if c == :auto
         c = autopick(sp[:color_palette], n)
     elseif isa(c, Int)
         c = autopick(sp[:color_palette], c)
     end
-    plot_color(c, α)
+    plot_color(c)
 end
 
 function ensure_gradient!(d::KW, csym::Symbol, asym::Symbol)
     if !isa(d[csym], ColorGradient)
-        d[csym] = cgrad(alpha = d[asym])
+        d[csym] = typeof(d[asym]) <: AbstractVector ? cgrad() : cgrad(alpha = d[asym])
     end
 end
 
@@ -1454,26 +1535,19 @@ function _replace_linewidth(d::KW)
 end
 
 function _add_defaults!(d::KW, plt::Plot, sp::Subplot, commandIndex::Int)
-    pkg = plt.backend
-    globalIndex = d[:series_plotindex]
-
     # add default values to our dictionary, being careful not to delete what we just added!
     for (k,v) in _series_defaults
         slice_arg!(d, d, k, v, commandIndex, false)
     end
 
-    # this is how many series belong to this subplot
-    # plotIndex = count(series -> series.d[:subplot] === sp && series.d[:primary], plt.series_list)
-    plotIndex = 0
-    for series in sp.series_list
-        if series[:primary]
-            plotIndex += 1
-        end
-    end
-    # plotIndex = count(series -> series[:primary], sp.series_list)
-    if get(d, :primary, true)
-        plotIndex += 1
-    end
+    return d
+end
+
+
+function _update_series_attributes!(d::KW, plt::Plot, sp::Subplot)
+    pkg = plt.backend
+    globalIndex = d[:series_plotindex]
+    plotIndex = _series_index(d, sp)
 
     aliasesAndAutopick(d, :linestyle, _styleAliases, supported_styles(pkg), plotIndex)
     aliasesAndAutopick(d, :markershape, _markerAliases, supported_markers(pkg), plotIndex)
@@ -1489,29 +1563,31 @@ function _add_defaults!(d::KW, plt::Plot, sp::Subplot, commandIndex::Int)
     end
 
     # update series color
-    d[:seriescolor] = getSeriesRGBColor(d[:seriescolor], d[:seriesalpha], sp, plotIndex)
+    d[:seriescolor] = getSeriesRGBColor.(d[:seriescolor], Ref(sp), plotIndex)
 
     # update other colors
     for s in (:line, :marker, :fill)
         csym, asym = Symbol(s,:color), Symbol(s,:alpha)
         d[csym] = if d[csym] == :auto
-            plot_color(if has_black_border_for_default(d[:seriestype]) && s == :line
+            plot_color.(if has_black_border_for_default(d[:seriestype]) && s == :line
                 sp[:foreground_color_subplot]
             else
                 d[:seriescolor]
-            end, d[asym])
+            end)
         elseif d[csym] == :match
-            plot_color(d[:seriescolor], d[asym])
+            plot_color.(d[:seriescolor])
         else
-            getSeriesRGBColor(d[csym], d[asym], sp, plotIndex)
+            getSeriesRGBColor.(d[csym], Ref(sp), plotIndex)
         end
     end
 
     # update markerstrokecolor
     d[:markerstrokecolor] = if d[:markerstrokecolor] == :match
-        plot_color(sp[:foreground_color_subplot], d[:markerstrokealpha])
+        plot_color(sp[:foreground_color_subplot])
+    elseif d[:markerstrokecolor] == :auto
+        getSeriesRGBColor.(d[:markercolor], Ref(sp), plotIndex)
     else
-        getSeriesRGBColor(d[:markerstrokecolor], d[:markerstrokealpha], sp, plotIndex)
+        getSeriesRGBColor.(d[:markerstrokecolor], Ref(sp), plotIndex)
     end
 
     # if marker_z, fill_z or line_z are set, ensure we have a gradient
@@ -1540,4 +1616,20 @@ function _add_defaults!(d::KW, plt::Plot, sp::Subplot, commandIndex::Int)
 
     _replace_linewidth(d)
     d
+end
+
+function _series_index(d, sp)
+    idx = 0
+    for series in series_list(sp)
+        if series[:primary]
+            idx += 1
+        end
+        if series == d
+            return idx
+        end
+    end
+    if get(d, :primary, true)
+        idx += 1
+    end
+    return idx
 end

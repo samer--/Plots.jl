@@ -2,20 +2,20 @@
 using VisualRegressionTests
 # using ExamplePlots
 
-import DataFrames, RDatasets
+# import DataFrames, RDatasets
 
 # don't let pyplot use a gui... it'll crash
 # note: Agg will set gui -> :none in PyPlot
-ENV["MPLBACKEND"] = "Agg"
-try
-  @eval import PyPlot
-  info("Matplotlib version: $(PyPlot.matplotlib[:__version__])")
-end
+# ENV["MPLBACKEND"] = "Agg"
+# try
+#   @eval import PyPlot
+#   info("Matplotlib version: $(PyPlot.matplotlib[:__version__])")
+# end
 
 
 using Plots
-using StatPlots
-using Base.Test
+# using StatPlots
+using Test
 
 default(size=(500,300))
 
@@ -23,7 +23,7 @@ default(size=(500,300))
 # TODO: use julia's Condition type and the wait() and notify() functions to initialize a Window, then wait() on a condition that
 #       is referenced in a button press callback (the button clicked callback will call notify() on that condition)
 
-const _current_plots_version = v"0.15.0"
+const _current_plots_version = v"0.17.4"
 
 
 function image_comparison_tests(pkg::Symbol, idx::Int; debug = false, popup = isinteractive(), sigma = [1,1], eps = 1e-2)
@@ -34,7 +34,7 @@ function image_comparison_tests(pkg::Symbol, idx::Int; debug = false, popup = is
     backend()
 
     # ensure consistent results
-    srand(1234)
+    Random.seed!(1234)
 
     # reference image directory setup
     # refdir = joinpath(Pkg.dir("ExamplePlots"), "test", "refimg", string(pkg))

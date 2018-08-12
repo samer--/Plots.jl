@@ -21,7 +21,7 @@ const _arg_desc = KW(
 :markerstrokewidth 	=> "Number. Width of the marker stroke (border. in pixels)",
 :markerstrokecolor 	=> "Color Type. Color of the marker stroke (border).  `:match` will take the value from `:foreground_color_subplot`.",
 :markerstrokealpha 	=> "Number in [0,1]. The alpha/opacity override for the marker stroke (border).  `nothing` (the default) means it will take the alpha value of markerstrokecolor.",
-:bins              	=> "Integer, NTuple{2,Integer}, AbstractVector or Symbol. Default is :auto (the Freedman-Diaconis rule). For histogram-types, defines the approximate number of bins to aim for, or the auto-binning algorithm to use (:sturges, :sqrt, :rice, :scott or :fd). For fine-grained control pass a Vector of break values, e.g. `linspace(extrema(x)..., 25)`",
+:bins              	=> "Integer, NTuple{2,Integer}, AbstractVector or Symbol. Default is :auto (the Freedman-Diaconis rule). For histogram-types, defines the approximate number of bins to aim for, or the auto-binning algorithm to use (:sturges, :sqrt, :rice, :scott or :fd). For fine-grained control pass a Vector of break values, e.g. `range(min(x), stop = extrema(x), length = 25)`",
 :smooth            	=> "Bool.  Add a regression line?",
 :group             	=> "AbstractVector. Data is split into a separate series, one for each unique value in `group`.",
 :x                 	=> "Various. Input data. First Dimension",
@@ -43,6 +43,7 @@ const _arg_desc = KW(
 :normalize         	=> "Bool or Symbol. Histogram normalization mode. Possible values are: false/:none (no normalization, default), true/:pdf (normalize to a discrete Probability Density Function, where the total area of the bins is 1), :probability (bin heights sum to 1) and :density (the area of each bin, rather than the height, is equal to the counts - useful for uneven bin sizes).",
 :weights           	=> "AbstractVector. Used in histogram types for weighted counts.",
 :contours          	=> "Bool. Add contours to the side-grids of 3D plots?  Used in surface/wireframe.",
+:contour_labels     => "Bool. Show labels at the contour lines?",
 :match_dimensions  	=> "Bool. For heatmap types... should the first dimension of a matrix (rows) correspond to the first dimension of the plot (x-axis)?  The default is false, which matches the behavior of Matplotlib, Plotly, and others.  Note: when passing a function for z, the function should still map `(x,y) -> z`.",
 :subplot           	=> "Integer (subplot index) or Subplot object.  The subplot that this series belongs to.",
 :series_annotations => "AbstractVector of String or PlotText.  These are annotations which are mapped to data points/positions.",
@@ -64,6 +65,7 @@ const _arg_desc = KW(
 :html_output_format       => "Symbol.  When writing html output, what is the format?  `:png` and `:svg` are currently supported.",
 :inset_subplots 		  => "nothing or vector of 2-tuple (parent,bbox).  optionally pass a vector of (parent,bbox) tuples which are the parent layout and the relative bounding box of inset subplots",
 :dpi 					  => "Number.  Dots Per Inch of output figures",
+:thickness_scaling        => "Number. Scale for the thickness of all line elements like lines, borders, axes, grid lines, ... defaults to 1.",
 :display_type 			  => "Symbol (`:auto`, `:gui`, or `:inline`).  When supported, `display` will either open a GUI window or plot inline.",
 :extra_kwargs 			  => "KW (Dict{Symbol,Any}).  Pass a map of extra keyword args which may be specific to a backend.",
 :fontfamily               => "String or Symbol.  Default font family for title, legend entries, tick labels and guides",
@@ -109,7 +111,7 @@ const _arg_desc = KW(
 
 # axis args
 :guide     				  => "String. Axis guide (label).",
-:lims      				  => "NTuple{2,Number}. Force axis limits.  Only finite values are used (you can set only the right limit with `xlims = (-Inf, 2)` for example).",
+:lims      				  => "NTuple{2,Number} or Symbol. Force axis limits.  Only finite values are used (you can set only the right limit with `xlims = (-Inf, 2)` for example). `:round` widens the limit to the nearest round number ie. [0.1,3.6]=>[0.0,4.0]",
 :ticks     				  => "Vector of numbers (set the tick values), Tuple of (tickvalues, ticklabels), or `:auto`",
 :scale     				  => "Symbol. Scale of the axis: `:none`, `:ln`, `:log2`, `:log10`",
 :rotation  				  => "Number. Degrees rotation of tick labels.",
@@ -137,6 +139,13 @@ const _arg_desc = KW(
 :gridalpha                => "Number in [0,1]. The alpha/opacity override for the grid lines.",
 :gridstyle                => "Symbol. Style of the grid lines. Choose from $(_allStyles)",
 :gridlinewidth            => "Number. Width of the grid lines (in pixels)",
+:foreground_color_minor_grid => "Color Type or `:match` (matches `:foreground_color_subplot`). Color of minor grid lines.",
+:minorgrid                => "Bool. Adds minor grid lines and ticks to the plot. Set minorticks to change number of gridlines",
+:minorticks               => "Integer. Intervals to divide the gap between major ticks into",
+:minorgridalpha           => "Number in [0,1]. The alpha/opacity override for the minorgrid lines.",
+:minorgridstyle           => "Symbol. Style of the minor grid lines. Choose from $(_allStyles)",
+:minorgridlinewidth       => "Number. Width of the minor grid lines (in pixels)",
 :tick_direction           => "Symbol.  Direction of the ticks. `:in` or `:out`",
-:showaxis                 => "Bool, Symbol or String.  Show the axis. `true`, `false`, `:show`, `:hide`, `:yes`, `:no`, `:x`, `:y`, `:z`, `:xy`, ..., `:all`, `:off`"
+:showaxis                 => "Bool, Symbol or String.  Show the axis. `true`, `false`, `:show`, `:hide`, `:yes`, `:no`, `:x`, `:y`, `:z`, `:xy`, ..., `:all`, `:off`",
+:widen                    => "Bool. Widen the axis limits by a small factor to avoid cut-off markers and lines at the borders. Defaults to `true`.",
 )

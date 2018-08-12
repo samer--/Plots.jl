@@ -1,11 +1,10 @@
-__precompile__(true)
-
 module Plots
 
 using Reexport
 
 import StaticArrays
 using StaticArrays.FixedSizeArrays
+using Dates, Printf, Statistics, Base64, LinearAlgebra
 
 @reexport using RecipesBase
 import RecipesBase: plot, plot!, animate
@@ -14,6 +13,7 @@ using Base.Meta
 @reexport using PlotThemes
 import Showoff
 import StatsBase
+import JSON
 
 using Requires
 
@@ -169,6 +169,7 @@ include("arg_desc.jl")
 include("plotattr.jl")
 include("backends.jl")
 include("output.jl")
+include("init.jl")
 
 # ---------------------------------------------------------
 
@@ -182,10 +183,13 @@ include("output.jl")
 @shorthands histogram2d
 @shorthands density
 @shorthands heatmap
+@shorthands plots_heatmap
 @shorthands hexbin
 @shorthands sticks
 @shorthands hline
 @shorthands vline
+@shorthands hspan
+@shorthands vspan
 @shorthands ohlc
 @shorthands contour
 @shorthands contourf
@@ -231,10 +235,10 @@ zlims!(zmin::Real, zmax::Real; kw...)                     = plot!(; zlims = (zmi
 
 
 "Set xticks for an existing plot"
-xticks!(v::AVec{T}; kw...) where {T<:Real}                       = plot!(; xticks = v, kw...)
+xticks!(v::TicksArgs; kw...) where {T<:Real}                       = plot!(; xticks = v, kw...)
 
 "Set yticks for an existing plot"
-yticks!(v::AVec{T}; kw...) where {T<:Real}                       = plot!(; yticks = v, kw...)
+yticks!(v::TicksArgs; kw...) where {T<:Real}                       = plot!(; yticks = v, kw...)
 
 xticks!(
 ticks::AVec{T}, labels::AVec{S}; kw...) where {T<:Real,S<:AbstractString}     = plot!(; xticks = (ticks,labels), kw...)
@@ -260,29 +264,29 @@ xgrid!(args...; kw...)                                    = plot!(; xgrid = args
 ygrid!(args...; kw...)                                    = plot!(; ygrid = args, kw...)
 
 let PlotOrSubplot = Union{Plot, Subplot}
-    title!(plt::PlotOrSubplot, s::AbstractString; kw...)                  = plot!(plt; title = s, kw...)
-    xlabel!(plt::PlotOrSubplot, s::AbstractString; kw...)                 = plot!(plt; xlabel = s, kw...)
-    ylabel!(plt::PlotOrSubplot, s::AbstractString; kw...)                 = plot!(plt; ylabel = s, kw...)
-    xlims!(plt::PlotOrSubplot, lims::Tuple{T,S}; kw...) where {T<:Real,S<:Real}  = plot!(plt; xlims = lims, kw...)
-    ylims!(plt::PlotOrSubplot, lims::Tuple{T,S}; kw...) where {T<:Real,S<:Real}  = plot!(plt; ylims = lims, kw...)
-    zlims!(plt::PlotOrSubplot, lims::Tuple{T,S}; kw...) where {T<:Real,S<:Real}  = plot!(plt; zlims = lims, kw...)
-    xlims!(plt::PlotOrSubplot, xmin::Real, xmax::Real; kw...)             = plot!(plt; xlims = (xmin,xmax), kw...)
-    ylims!(plt::PlotOrSubplot, ymin::Real, ymax::Real; kw...)             = plot!(plt; ylims = (ymin,ymax), kw...)
-    zlims!(plt::PlotOrSubplot, zmin::Real, zmax::Real; kw...)             = plot!(plt; zlims = (zmin,zmax), kw...)
-    xticks!(plt::PlotOrSubplot, ticks::AVec{T}; kw...) where {T<:Real}           = plot!(plt; xticks = ticks, kw...)
-    yticks!(plt::PlotOrSubplot, ticks::AVec{T}; kw...) where {T<:Real}           = plot!(plt; yticks = ticks, kw...)
-    xticks!(plt::PlotOrSubplot,
+    global title!(plt::PlotOrSubplot, s::AbstractString; kw...)                  = plot!(plt; title = s, kw...)
+    global xlabel!(plt::PlotOrSubplot, s::AbstractString; kw...)                 = plot!(plt; xlabel = s, kw...)
+    global ylabel!(plt::PlotOrSubplot, s::AbstractString; kw...)                 = plot!(plt; ylabel = s, kw...)
+    global xlims!(plt::PlotOrSubplot, lims::Tuple{T,S}; kw...) where {T<:Real,S<:Real}  = plot!(plt; xlims = lims, kw...)
+    global ylims!(plt::PlotOrSubplot, lims::Tuple{T,S}; kw...) where {T<:Real,S<:Real}  = plot!(plt; ylims = lims, kw...)
+    global zlims!(plt::PlotOrSubplot, lims::Tuple{T,S}; kw...) where {T<:Real,S<:Real}  = plot!(plt; zlims = lims, kw...)
+    global xlims!(plt::PlotOrSubplot, xmin::Real, xmax::Real; kw...)             = plot!(plt; xlims = (xmin,xmax), kw...)
+    global ylims!(plt::PlotOrSubplot, ymin::Real, ymax::Real; kw...)             = plot!(plt; ylims = (ymin,ymax), kw...)
+    global zlims!(plt::PlotOrSubplot, zmin::Real, zmax::Real; kw...)             = plot!(plt; zlims = (zmin,zmax), kw...)
+    global xticks!(plt::PlotOrSubplot, ticks::TicksArgs; kw...) where {T<:Real}           = plot!(plt; xticks = ticks, kw...)
+    global yticks!(plt::PlotOrSubplot, ticks::TicksArgs; kw...) where {T<:Real}           = plot!(plt; yticks = ticks, kw...)
+    global xticks!(plt::PlotOrSubplot,
    ticks::AVec{T}, labels::AVec{S}; kw...) where {T<:Real,S<:AbstractString}     = plot!(plt; xticks = (ticks,labels), kw...)
-    yticks!(plt::PlotOrSubplot,
+    global yticks!(plt::PlotOrSubplot,
    ticks::AVec{T}, labels::AVec{S}; kw...) where {T<:Real,S<:AbstractString}     = plot!(plt; yticks = (ticks,labels), kw...)
-    xgrid!(plt::PlotOrSubplot, args...; kw...)                  = plot!(plt; xgrid = args, kw...)
-    ygrid!(plt::PlotOrSubplot, args...; kw...)                  = plot!(plt; ygrid = args, kw...)
-    annotate!(plt::PlotOrSubplot, anns...; kw...)                         = plot!(plt; annotation = anns, kw...)
-    annotate!(plt::PlotOrSubplot, anns::AVec{T}; kw...) where {T<:Tuple}         = plot!(plt; annotation = anns, kw...)
-    xflip!(plt::PlotOrSubplot, flip::Bool = true; kw...)                  = plot!(plt; xflip = flip, kw...)
-    yflip!(plt::PlotOrSubplot, flip::Bool = true; kw...)                  = plot!(plt; yflip = flip, kw...)
-    xaxis!(plt::PlotOrSubplot, args...; kw...)                            = plot!(plt; xaxis = args, kw...)
-    yaxis!(plt::PlotOrSubplot, args...; kw...)                            = plot!(plt; yaxis = args, kw...)
+    global xgrid!(plt::PlotOrSubplot, args...; kw...)                  = plot!(plt; xgrid = args, kw...)
+    global ygrid!(plt::PlotOrSubplot, args...; kw...)                  = plot!(plt; ygrid = args, kw...)
+    global annotate!(plt::PlotOrSubplot, anns...; kw...)                         = plot!(plt; annotation = anns, kw...)
+    global annotate!(plt::PlotOrSubplot, anns::AVec{T}; kw...) where {T<:Tuple}         = plot!(plt; annotation = anns, kw...)
+    global xflip!(plt::PlotOrSubplot, flip::Bool = true; kw...)                  = plot!(plt; xflip = flip, kw...)
+    global yflip!(plt::PlotOrSubplot, flip::Bool = true; kw...)                  = plot!(plt; yflip = flip, kw...)
+    global xaxis!(plt::PlotOrSubplot, args...; kw...)                            = plot!(plt; xaxis = args, kw...)
+    global yaxis!(plt::PlotOrSubplot, args...; kw...)                            = plot!(plt; yaxis = args, kw...)
 end
 
 
@@ -293,8 +297,11 @@ const CURRENT_BACKEND = CurrentBackend(:none)
 # for compatibility with Requires.jl:
 @init begin
     if isdefined(Main, :PLOTS_DEFAULTS)
+        if haskey(Main.PLOTS_DEFAULTS, :theme)
+            theme(Main.PLOTS_DEFAULTS[:theme])
+        end
         for (k,v) in Main.PLOTS_DEFAULTS
-            default(k, v)
+            k == :theme || default(k, v)
         end
     end
 end

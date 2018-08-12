@@ -7,7 +7,7 @@ nanpush!(a::AbstractVector{P2}, b) = (push!(a, P2(NaN,NaN)); push!(a, b))
 nanappend!(a::AbstractVector{P2}, b) = (push!(a, P2(NaN,NaN)); append!(a, b))
 nanpush!(a::AbstractVector{P3}, b) = (push!(a, P3(NaN,NaN,NaN)); push!(a, b))
 nanappend!(a::AbstractVector{P3}, b) = (push!(a, P3(NaN,NaN,NaN)); append!(a, b))
-compute_angle(v::P2) = (angle = atan2(v[2], v[1]); angle < 0 ? 2π - angle : angle)
+compute_angle(v::P2) = (angle = atan(v[2], v[1]); angle < 0 ? 2π - angle : angle)
 
 # -------------------------------------------------------------
 
@@ -58,7 +58,7 @@ end
 
 "get an array of tuples of points on a circle with radius `r`"
 function partialcircle(start_θ, end_θ, n = 20, r=1)
-    Tuple{Float64,Float64}[(r*cos(u),r*sin(u)) for u in linspace(start_θ, end_θ, n)]
+    Tuple{Float64,Float64}[(r*cos(u),r*sin(u)) for u in range(start_θ, stop=end_θ, length=n)]
 end
 
 "interleave 2 vectors into each other (like a zipper's teeth)"
@@ -68,7 +68,8 @@ function weave(x,y; ordering = Vector[x,y])
   while !done
     for o in ordering
       try
-          push!(ret, shift!(o))
+          push!(ret, popfirst!(o))
+      catch
       end
     end
     done = isempty(x) && isempty(y)
@@ -296,7 +297,7 @@ function font(args...)
     elseif typeof(arg) <: Real
       rotation = convert(Float64, arg)
     else
-      warn("Unused font arg: $arg ($(typeof(arg)))")
+      @warn("Unused font arg: $arg ($(typeof(arg)))")
     end
   end
 
@@ -388,13 +389,14 @@ function stroke(args...; alpha = nothing)
     elseif T <: Symbol || T <: AbstractString
       try
         color = parse(Colorant, string(arg))
+      catch
       end
     elseif allAlphas(arg)
       alpha = arg
     elseif allReals(arg)
       width = arg
     else
-      warn("Unused stroke arg: $arg ($(typeof(arg)))")
+      @warn("Unused stroke arg: $arg ($(typeof(arg)))")
     end
   end
 
@@ -420,13 +422,14 @@ function brush(args...; alpha = nothing)
     elseif T <: Symbol || T <: AbstractString
       try
         color = parse(Colorant, string(arg))
+      catch
       end
     elseif allAlphas(arg)
       alpha = arg
     elseif allReals(arg)
       size = arg
     else
-      warn("Unused brush arg: $arg ($(typeof(arg)))")
+      @warn("Unused brush arg: $arg ($(typeof(arg)))")
     end
   end
 
@@ -438,16 +441,16 @@ end
 mutable struct SeriesAnnotations
     strs::AbstractVector  # the labels/names
     font::Font
-    baseshape::Nullable
+    baseshape::Union{Shape, AbstractVector{Shape}, Nothing}
     scalefactor::Tuple
 end
 function series_annotations(strs::AbstractVector, args...)
     fnt = font()
-    shp = Nullable{Any}()
+    shp = nothing
     scalefactor = (1,1)
     for arg in args
         if isa(arg, Shape) || (isa(arg, AbstractVector) && eltype(arg) == Shape)
-            shp = Nullable(arg)
+            shp = arg
         elseif isa(arg, Font)
             fnt = arg
         elseif isa(arg, Symbol) && haskey(_shapes, arg)
@@ -457,7 +460,7 @@ function series_annotations(strs::AbstractVector, args...)
         elseif is_2tuple(arg)
             scalefactor = arg
         else
-            warn("Unused SeriesAnnotations arg: $arg ($(typeof(arg)))")
+            @warn("Unused SeriesAnnotations arg: $arg ($(typeof(arg)))")
         end
     end
     # if scalefactor != 1
@@ -468,7 +471,7 @@ function series_annotations(strs::AbstractVector, args...)
     SeriesAnnotations(strs, fnt, shp, scalefactor)
 end
 series_annotations(anns::SeriesAnnotations) = anns
-series_annotations(::Void) = nothing
+series_annotations(::Nothing) = nothing
 
 function series_annotations_shapes!(series::Series, scaletype::Symbol = :pixels)
     anns = series[:series_annotations]
@@ -483,12 +486,13 @@ function series_annotations_shapes!(series::Series, scaletype::Symbol = :pixels)
     # end
 
     # @show msw msh
-    if anns != nothing && !isnull(anns.baseshape)
+    if anns != nothing && anns.baseshape != nothing
         # we use baseshape to overwrite the markershape attribute
         # with a list of custom shapes for each
         msw,msh = anns.scalefactor
         msize = Float64[]
-        shapes = Shape[begin
+        shapes = Vector{Shape}(length(anns.strs))
+        for i in eachindex(anns.strs)
             str = _cycle(anns.strs,i)
 
             # get the width and height of the string (in mm)
@@ -506,8 +510,8 @@ function series_annotations_shapes!(series::Series, scaletype::Symbol = :pixels)
             maxscale = max(xscale, yscale)
             push!(msize, maxscale)
             baseshape = _cycle(get(anns.baseshape),i)
-            shape = scale(baseshape, msw*xscale/maxscale, msh*yscale/maxscale, (0,0))
-        end for i=1:length(anns.strs)]
+            shapes[i] = scale(baseshape, msw*xscale/maxscale, msh*yscale/maxscale, (0,0))
+        end
         series[:markershape] = shapes
         series[:markersize] = msize
     end
@@ -519,9 +523,12 @@ mutable struct EachAnn
     x
     y
 end
-Base.start(ea::EachAnn) = 1
-Base.done(ea::EachAnn, i) = ea.anns == nothing || isempty(ea.anns.strs) || i > length(ea.y)
-function Base.next(ea::EachAnn, i)
+
+function Base.iterate(ea::EachAnn, i = 1)
+    if ea.anns == nothing || isempty(ea.anns.strs) || i > length(ea.y)
+        return nothing
+    end
+
     tmp = _cycle(ea.anns.strs,i)
     str,fnt = if isa(tmp, PlotText)
         tmp.str, tmp.font
@@ -531,7 +538,7 @@ function Base.next(ea::EachAnn, i)
     ((_cycle(ea.x,i), _cycle(ea.y,i), str, fnt), i+1)
 end
 
-annotations(::Void) = []
+annotations(::Nothing) = []
 annotations(anns::AVec) = anns
 annotations(anns) = Any[anns]
 annotations(sa::SeriesAnnotations) = sa
@@ -697,7 +704,7 @@ function arrow(args...)
         elseif T <: Tuple && length(arg) == 2
             headlength, headwidth = Float64(arg[1]), Float64(arg[2])
         else
-            warn("Skipped arrow arg $arg")
+            @warn("Skipped arrow arg $arg")
         end
     end
     Arrow(style, side, headlength, headwidth)
@@ -747,7 +754,7 @@ end
 
 @deprecate curve_points coords
 
-coords(curve::BezierCurve, n::Integer = 30; range = [0,1]) = map(curve, linspace(range..., n))
+coords(curve::BezierCurve, n::Integer = 30; range = [0,1]) = map(curve, range(range..., stop=n, length=50))
 
 # build a BezierCurve which leaves point p vertically upwards and arrives point q vertically upwards.
 # may create a loop if necessary.  Assumes the view is [0,1]

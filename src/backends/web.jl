@@ -2,9 +2,6 @@
 # NOTE:  backend should implement `html_body` and `html_head`
 
 # CREDIT: parts of this implementation were inspired by @joshday's PlotlyLocal.jl
-@require Revise begin
-    Revise.track(Plots, joinpath(Pkg.dir("Plots"), "src", "backends", "web.jl")) 
-end
 
 function standalone_html(plt::AbstractPlot; title::AbstractString = get(plt.attr, :window_title, "Plots.jl"))
     """
@@ -12,6 +9,7 @@ function standalone_html(plt::AbstractPlot; title::AbstractString = get(plt.attr
     <html>
         <head>
             <title>$title</title>
+            <meta http-equiv="content-type" content="text/html; charset=UTF-8">
             $(html_head(plt))
         </head>
         <body>
@@ -22,16 +20,16 @@ function standalone_html(plt::AbstractPlot; title::AbstractString = get(plt.attr
 end
 
 function open_browser_window(filename::AbstractString)
-    @static if is_apple()
+    @static if Sys.isapple()
         return run(`open $(filename)`)
     end
-    @static if is_linux() || is_bsd()    # is_bsd() addition is as yet untested, but based on suggestion in https://github.com/JuliaPlots/Plots.jl/issues/681
+    @static if Sys.islinux() || Sys.isbsd()    # Sys.isbsd() addition is as yet untested, but based on suggestion in https://github.com/JuliaPlots/Plots.jl/issues/681
         return run(`xdg-open $(filename)`)
     end
-    @static if is_windows()
+    @static if Sys.iswindows()
         return run(`$(ENV["COMSPEC"]) /c start "" "$(filename)"`)
     end
-    warn("Unknown OS... cannot open browser window.")
+    @warn("Unknown OS... cannot open browser window.")
 end
 
 function write_temp_html(plt::AbstractPlot)

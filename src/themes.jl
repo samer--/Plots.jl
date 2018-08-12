@@ -10,7 +10,7 @@ end
 
 function _get_defaults(s::Symbol)
     thm = PlotThemes._themes[s]
-    if :defaults in fieldnames(thm)
+    if :defaults in fieldnames(typeof(thm))
         return thm.defaults
     else # old PlotTheme type
         defaults = KW(
@@ -93,7 +93,7 @@ _get_showtheme_args(thm::Symbol, func::Symbol) = thm, get(_color_functions, func
             cfunc(RGB(def))
         elseif eltype(def) <: Colorant
             cfunc.(RGB.(def))
-        elseif contains(string(arg), "color")
+        elseif occursin("color", string(arg))
             cfunc.(RGB.(plot_color.(def)))
         else
             def
@@ -132,7 +132,7 @@ _get_showtheme_args(thm::Symbol, func::Symbol) = thm, get(_color_functions, func
 
     f(r) = sin(r) / r
     _norm(x, y) = norm([x, y])
-    x = y = linspace(-3π, 3π, 30)
+    x = y = range(-3π, stop = 3π, length = 30)
     z = f.(_norm.(x, y'))
     wi = 2:3:30
 
@@ -152,7 +152,7 @@ _get_showtheme_args(thm::Symbol, func::Symbol) = thm, get(_color_functions, func
     end
 
     n = 100
-    ts = linspace(0, 10π, n)
+    ts = range(0, stop = 10π, length = n)
     x = ts .* cos.(ts)
     y = (0.1ts) .* sin.(ts)
     z = 1:n

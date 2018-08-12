@@ -1,10 +1,10 @@
 
 mutable struct CurrentPlot
-    nullableplot::Nullable{AbstractPlot}
+    nullableplot::Union{AbstractPlot, Nothing}
 end
-const CURRENT_PLOT = CurrentPlot(Nullable{AbstractPlot}())
+const CURRENT_PLOT = CurrentPlot(nothing)
 
-isplotnull() = isnull(CURRENT_PLOT.nullableplot)
+isplotnull() = CURRENT_PLOT.nullableplot == nothing
 
 """
     current()
@@ -14,9 +14,9 @@ function current()
     if isplotnull()
         error("No current plot/subplot")
     end
-    get(CURRENT_PLOT.nullableplot)
+    CURRENT_PLOT.nullableplot
 end
-current(plot::AbstractPlot) = (CURRENT_PLOT.nullableplot = Nullable(plot))
+current(plot::AbstractPlot) = (CURRENT_PLOT.nullableplot = plot)
 
 # ---------------------------------------------------------
 
@@ -46,9 +46,8 @@ When you pass in matrices, it splits by columns. To see the list of available at
 function, where `attr` is the symbol `:Series:`, `:Subplot:`, `:Plot` or `:Axis`. Pass any attribute to `plotattr`
 as a String to look up its docstring; e.g. `plotattr("seriestype")`.
 """
-
-# this creates a new plot with args/kw and sets it to be the current plot
 function plot(args...; kw...)
+    # this creates a new plot with args/kw and sets it to be the current plot
     d = KW(kw)
     preprocessArgs!(d)
 
@@ -66,7 +65,7 @@ function plot(plt1::Plot, plts_tail::Plot...; kw...)
 
     # build our plot vector from the args
     n = length(plts_tail) + 1
-    plts = Array{Plot}(n)
+    plts = Array{Plot}(undef, n)
     plts[1] = plt1
     for (i,plt) in enumerate(plts_tail)
         plts[i+1] = plt
@@ -102,8 +101,13 @@ function plot(plt1::Plot, plts_tail::Plot...; kw...)
         end
     end
 
-    # create the layout and initialize the subplots
+    # create the layout
     plt.layout, plt.subplots, plt.spmap = build_layout(layout, num_sp, copy(plts))
+
+    # do we need to link any axes together?
+    link_axes!(plt.layout, plt[:link])
+
+    # initialize the subplots
     cmdidx = 1
     for (idx, sp) in enumerate(plt.subplots)
         _initialize_subplot(plt, sp)
@@ -126,9 +130,6 @@ function plot(plt1::Plot, plts_tail::Plot...; kw...)
     for (idx,sp) in enumerate(plt.subplots)
         _update_subplot_args(plt, sp, d, idx, false)
     end
-
-    # do we need to link any axes together?
-    link_axes!(plt.layout, plt[:link])
 
     # finish up
     current(plt)
@@ -167,7 +168,7 @@ function _plot!(plt::Plot, d::KW, args::Tuple)
 
     if !isempty(args) && !isdefined(Main, :StatPlots) &&
             first(split(string(typeof(args[1])), ".")) == "DataFrames"
-        warn("You're trying to plot a DataFrame, but this functionality is provided by StatPlots")
+        @warn("You're trying to plot a DataFrame, but this functionality is provided by StatPlots")
     end
 
     # --------------------------------
@@ -191,7 +192,7 @@ function _plot!(plt::Plot, d::KW, args::Tuple)
     still_to_process = kw_list
     kw_list = KW[]
     while !isempty(still_to_process)
-        next_kw = shift!(still_to_process)
+        next_kw = popfirst!(still_to_process)
         _process_plotrecipe(plt, next_kw, kw_list, still_to_process)
     end
 

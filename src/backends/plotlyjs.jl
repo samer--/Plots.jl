@@ -1,6 +1,3 @@
-@require Revise begin
-    Revise.track(Plots, joinpath(Pkg.dir("Plots"), "src", "backends", "plotlyjs.jl")) 
-end
 
 # https://github.com/spencerlyon2/PlotlyJS.jl
 
@@ -11,35 +8,6 @@ const _plotlyjs_marker      = _plotly_marker
 const _plotlyjs_scale       = _plotly_scale
 
 # --------------------------------------------------------------------------------------
-
-
-function add_backend_string(::PlotlyJSBackend)
-    """
-    if !Plots.is_installed("PlotlyJS")
-        Pkg.add("PlotlyJS")
-    end
-    if !Plots.is_installed("Rsvg")
-        Pkg.add("Rsvg")
-    end
-    import Blink
-    Blink.AtomShell.install()
-    """
-end
-
-
-function _initialize_backend(::PlotlyJSBackend; kw...)
-    @eval begin
-        import PlotlyJS
-        export PlotlyJS
-    end
-
-    # # override IJulia inline display
-    # if isijulia()
-    #     IJulia.display_dict(plt::AbstractPlot{PlotlyJSBackend}) = IJulia.display_dict(plt.o)
-    # end
-end
-
-# ---------------------------------------------------------------------------
 
 
 function _create_backend_figure(plt::Plot{PlotlyJSBackend})
@@ -88,8 +56,7 @@ end
 
 # ----------------------------------------------------------------
 
-function Base.show(io::IO, ::MIME"text/html", plt::Plot{PlotlyJSBackend})
-    prepare_output(plt)
+function _show(io::IO, ::MIME"text/html", plt::Plot{PlotlyJSBackend})
     if isijulia() && !_use_remote[]
         write(io, PlotlyJS.html_body(PlotlyJS.JupyterPlot(plt.o)))
     else
@@ -121,6 +88,12 @@ function _display(plt::Plot{PlotlyJSBackend})
     end
 end
 
+@require WebIO = "0f1e0344-ec1d-5b48-a673-e5cf874b6c29" begin
+    function WebIO.render(plt::Plot{PlotlyJSBackend})
+        prepare_output(plt)
+        WebIO.render(plt.o)
+    end
+end
 
 function closeall(::PlotlyJSBackend)
     if !isplotnull() && isa(current().o, PlotlyJS.SyncPlot)

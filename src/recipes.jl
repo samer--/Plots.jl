@@ -79,28 +79,50 @@ function hvline_limits(axis::Axis)
 end
 
 @recipe function f(::Type{Val{:hline}}, x, y, z)
-    xmin, xmax = hvline_limits(plotattributes[:subplot][:xaxis])
     n = length(y)
-    newx = repmat(Float64[xmin, xmax, NaN], n)
+    newx = repeat(Float64[-1, 1, NaN], n)
     newy = vec(Float64[yi for i=1:3,yi=y])
     x := newx
     y := newy
-    seriestype := :path
+    seriestype := :straightline
     ()
 end
-@deps hline path
+@deps hline straightline
 
 @recipe function f(::Type{Val{:vline}}, x, y, z)
-    ymin, ymax = hvline_limits(plotattributes[:subplot][:yaxis])
     n = length(y)
     newx = vec(Float64[yi for i=1:3,yi=y])
-    newy = repmat(Float64[ymin, ymax, NaN], n)
+    newy = repeat(Float64[-1, 1, NaN], n)
     x := newx
     y := newy
-    seriestype := :path
+    seriestype := :straightline
     ()
 end
-@deps vline path
+@deps vline straightline
+
+@recipe function f(::Type{Val{:hspan}}, x, y, z)
+    n = div(length(y), 2)
+    newx = repeat([-Inf, Inf, Inf, -Inf, NaN], outer = n)
+    newy = vcat([[y[2i-1], y[2i-1], y[2i], y[2i], NaN] for i in 1:n]...)
+    linewidth --> 0
+    x := newx
+    y := newy
+    seriestype := :shape
+    ()
+end
+@deps hspan shape
+
+@recipe function f(::Type{Val{:vspan}}, x, y, z)
+    n = div(length(y), 2)
+    newx = vcat([[y[2i-1], y[2i-1], y[2i], y[2i], NaN] for i in 1:n]...)
+    newy = repeat([-Inf, Inf, Inf, -Inf, NaN], outer = n)
+    linewidth --> 0
+    x := newx
+    y := newy
+    seriestype := :shape
+    ()
+end
+@deps vspan shape
 
 # ---------------------------------------------------------------------------
 # path and scatter
@@ -124,26 +146,31 @@ end
 # ---------------------------------------------------------------------------
 # steps
 
-function make_steps(x, y, st)
+make_steps(x, st) = x
+function make_steps(x::AbstractArray, st)
     n = length(x)
-    n == 0 && return zeros(0),zeros(0)
-    newx, newy = zeros(2n-1), zeros(2n-1)
-    for i=1:n
-        idx = 2i-1
+    n == 0 && return zeros(0)
+    newx = zeros(2n - 1)
+    for i in 1:n
+        idx = 2i - 1
         newx[idx] = x[i]
-        newy[idx] = y[i]
         if i > 1
-            newx[idx-1] = x[st == :steppre ? i-1 : i]
-            newy[idx-1] = y[st == :steppre ? i   : i-1]
+            newx[idx - 1] = x[st == :pre ? i : i - 1]
         end
     end
-    newx, newy
+    return newx
 end
+make_steps(t::Tuple, st) = Tuple(make_steps(ti, st) for ti in t)
+
 
 # create a path from steps
 @recipe function f(::Type{Val{:steppre}}, x, y, z)
-    plotattributes[:x], plotattributes[:y] = make_steps(x, y, :steppre)
+    plotattributes[:x] = make_steps(x, :post)
+    plotattributes[:y] = make_steps(y, :pre)
     seriestype := :path
+
+    # handle fillrange
+    plotattributes[:fillrange] = make_steps(plotattributes[:fillrange], :pre)
 
     # create a secondary series for the markers
     if plotattributes[:markershape] != :none
@@ -163,8 +190,12 @@ end
 
 # create a path from steps
 @recipe function f(::Type{Val{:steppost}}, x, y, z)
-    plotattributes[:x], plotattributes[:y] = make_steps(x, y, :steppost)
+    plotattributes[:x] = make_steps(x, :pre)
+    plotattributes[:y] = make_steps(y, :post)
     seriestype := :path
+
+    # handle fillrange
+    plotattributes[:fillrange] = make_steps(plotattributes[:fillrange], :post)
 
     # create a secondary series for the markers
     if plotattributes[:markershape] != :none
@@ -253,7 +284,7 @@ end
     # where the points are the control points of the curve
     for rng in iter_segments(args...)
         length(rng) < 2 && continue
-        ts = linspace(0, 1, npoints)
+        ts = range(0, stop = 1, length = npoints)
         nanappend!(newx, map(t -> bezier_value(_cycle(x,rng), t), ts))
         nanappend!(newy, map(t -> bezier_value(_cycle(y,rng), t), ts))
         if z != nothing
@@ -308,7 +339,11 @@ end
     # compute half-width of bars
     bw = plotattributes[:bar_width]
     hw = if bw == nothing
-        0.5*_bar_width*ignorenan_minimum(filter(x->x>0, diff(procx)))
+        if nx > 1
+            0.5*_bar_width*ignorenan_minimum(filter(x->x>0, diff(procx)))
+        else
+            0.5 * _bar_width
+        end
     else
         Float64[0.5_cycle(bw,i) for i=1:length(procx)]
     end
@@ -354,6 +389,34 @@ end
 end
 @deps bar shape
 
+# ---------------------------------------------------------------------------
+# Plots Heatmap
+@recipe function f(::Type{Val{:plots_heatmap}}, x, y, z)
+    xe, ye = heatmap_edges(x), heatmap_edges(y)
+    m, n = size(z.surf)
+    x_pts, y_pts = fill(NaN, 6 * m * n), fill(NaN, 6 * m * n)
+    fz = zeros(m * n)
+    for i in 1:m # y
+        for j in 1:n # x
+            k = (j - 1) * m + i
+            inds = (6 * (k - 1) + 1):(6 * k - 1)
+            x_pts[inds] .= [xe[j], xe[j + 1], xe[j + 1], xe[j], xe[j]]
+            y_pts[inds] .= [ye[i], ye[i], ye[i + 1], ye[i + 1], ye[i]]
+            fz[k] = z.surf[i, j]
+        end
+    end
+    ensure_gradient!(plotattributes, :fillcolor, :fillalpha)
+    fill_z := fz
+    line_z := fz
+    x := x_pts
+    y := y_pts
+    z := nothing
+    seriestype := :shape
+    label := ""
+    widen --> false
+    ()
+end
+@deps plots_heatmap shape
 
 # ---------------------------------------------------------------------------
 # Histograms
@@ -435,21 +498,25 @@ function _stepbins_path(edge, weights, baseline::Real, xscale::Symbol, yscale::S
     log_scale_x = xscale in _logScales
     log_scale_y = yscale in _logScales
 
-    nbins = length(linearindices(weights))
-    if length(linearindices(edge)) != nbins + 1
+    nbins = length(eachindex(weights))
+    if length(eachindex(edge)) != nbins + 1
         error("Edge vector must be 1 longer than weight vector")
     end
 
     x = eltype(edge)[]
     y = eltype(weights)[]
 
-    it_e, it_w = start(edge), start(weights)
-    a, it_e = next(edge, it_e)
+    it_tuple_e = iterate(edge)
+    a, it_state_e = it_tuple_e
+    it_tuple_e = iterate(edge, it_state_e)
+
+    it_tuple_w = iterate(weights)
+
     last_w = eltype(weights)(NaN)
-    i = 1
-    while (!done(edge, it_e) && !done(edge, it_e))
-        b, it_e = next(edge, it_e)
-        w, it_w = next(weights, it_w)
+
+    while it_tuple_e != nothing && it_tuple_w != nothing
+        b, it_state_e = it_tuple_e
+        w, it_state_w = it_tuple_w
 
         if (log_scale_x && a ≈ 0)
             a = b/_logScaleBases[xscale]^3
@@ -473,6 +540,9 @@ function _stepbins_path(edge, weights, baseline::Real, xscale::Symbol, yscale::S
 
         a = b
         last_w = w
+
+        it_tuple_e = iterate(edge, it_state_e)
+        it_tuple_w = iterate(weights, it_state_w)
     end
     if (last_w != baseline)
         push!(x, a)
@@ -516,18 +586,18 @@ end
 end
 Plots.@deps stepbins path
 
-wand_edges(x...) = (warn("Load the StatPlots package in order to use :wand bins. Defaulting to :auto", once = true); :auto)
+wand_edges(x...) = (@warn("Load the StatPlots package in order to use :wand bins. Defaulting to :auto", once = true); :auto)
 
 function _auto_binning_nbins(vs::NTuple{N,AbstractVector}, dim::Integer; mode::Symbol = :auto) where N
     _cl(x) = ceil(Int, NaNMath.max(x, one(x)))
     _iqr(v) = (q = quantile(v, 0.75) - quantile(v, 0.25); q > 0 ? q : oftype(q, 1))
     _span(v) = ignorenan_maximum(v) - ignorenan_minimum(v)
 
-    n_samples = length(linearindices(first(vs)))
+    n_samples = length(LinearIndices(first(vs)))
 
     # The nd estimator is the key to most automatic binning methods, and is modified for twodimensional histograms to include correlation
     nd = n_samples^(1/(2+N))
-    nd = N == 2 ? nd / (1-cor(first(vs), last(vs))^2)^(3//8) : nd # the >2-dimensional case does not have a nice solution to correlations
+    nd = N == 2 ? min(n_samples^(1/(2+N)), nd / (1-cor(first(vs), last(vs))^2)^(3//8)) : nd # the >2-dimensional case does not have a nice solution to correlations
 
     v = vs[dim]
 
@@ -556,11 +626,11 @@ _hist_edge(vs::NTuple{N,AbstractVector}, dim::Integer, binning::Integer) where {
 _hist_edge(vs::NTuple{N,AbstractVector}, dim::Integer, binning::Symbol) where {N} = _hist_edge(vs, dim, _auto_binning_nbins(vs, dim, mode = binning))
 _hist_edge(vs::NTuple{N,AbstractVector}, dim::Integer, binning::AbstractVector) where {N} = binning
 
-_hist_edges(vs::NTuple{N,AbstractVector}, binning::NTuple{N}) where {N} =
-    map(dim -> _hist_edge(vs, dim, binning[dim]), (1:N...))
+_hist_edges(vs::NTuple{N,AbstractVector}, binning::NTuple{N, Any}) where {N} =
+    map(dim -> _hist_edge(vs, dim, binning[dim]), (1:N...,))
 
 _hist_edges(vs::NTuple{N,AbstractVector}, binning::Union{Integer, Symbol, AbstractVector}) where {N} =
-    map(dim -> _hist_edge(vs, dim, binning), (1:N...))
+    map(dim -> _hist_edge(vs, dim, binning), (1:N...,))
 
 _hist_norm_mode(mode::Symbol) = mode
 _hist_norm_mode(mode::Bool) = mode ? :pdf : :none
@@ -729,7 +799,7 @@ end
 
 function error_coords(xorig, yorig, ebar)
     # init empty x/y, and zip errors if passed Tuple{Vector,Vector}
-    x, y = Array{float_extended_type(xorig)}(0), Array{Float64}(0)
+    x, y = Array{float_extended_type(xorig)}(undef, 0), Array{Float64}(undef, 0)
     # for each point, create a line segment from the bottom to the top of the errorbar
     for i = 1:max(length(xorig), length(yorig))
         xi = _cycle(xorig, i)
@@ -986,27 +1056,21 @@ end
 # -------------------------------------------------
 
 "Adds a+bx... straight line over the current plot, without changing the axis limits"
-function abline!(plt::Plot, a, b; kw...)
-    xl, yl = xlims(plt), ylims(plt)
-    x1, x2 = max(xl[1], (yl[1] - b)/a), min(xl[2], (yl[2] - b)/a)
-    if x2 > x1
-        plot!(plt, x -> b + a*x, x1, x2; kw...)
-    else
-        nothing
-    end
-end
+abline!(plt::Plot, a, b; kw...) = plot!(plt, [0, 1], [b, b+a]; seriestype = :straightline, kw...)
 
 abline!(args...; kw...) = abline!(current(), args...; kw...)
 
 
 # -------------------------------------------------
-# Dates
+# Dates & Times
 
 dateformatter(dt) = string(Date(Dates.UTD(dt)))
 datetimeformatter(dt) = string(DateTime(Dates.UTM(dt)))
+timeformatter(t) = string(Dates.Time(Dates.Nanosecond(t)))
 
 @recipe f(::Type{Date}, dt::Date) = (dt -> Dates.value(dt), dateformatter)
 @recipe f(::Type{DateTime}, dt::DateTime) = (dt -> Dates.value(dt), datetimeformatter)
+@recipe f(::Type{Dates.Time}, t::Dates.Time) = (t -> Dates.value(t), timeformatter)
 
 # -------------------------------------------------
 # Complex Numbers
