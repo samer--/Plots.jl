@@ -122,7 +122,9 @@ const _mimeformats = [
 const _best_html_output_type = KW(
     :pyplot => :png,
     :unicodeplots => :txt,
-    :glvisualize => :png
+    :glvisualize => :png,
+    :plotlyjs => :html,
+    :plotly => :html
 )
 
 # a backup for html... passes to svg or png depending on the html_output_format arg
@@ -159,27 +161,26 @@ end
 # IJulia
 # ---------------------------------------------------------
 
-const _ijulia_output = String["text/html"]
-
 @require IJulia begin
     if IJulia.inited
-        export set_ijulia_output
 
-        function set_ijulia_output(mimestr::AbstractString)
-            # info("Setting IJulia output format to $mimestr")
-            global _ijulia_output
-            _ijulia_output[1] = mimestr
-        end
         function IJulia.display_dict(plt::Plot)
-            global _ijulia_output
-            Dict{String, String}(_ijulia_output[1] => sprint(plot_writer(_ijulia_output[1], plt)))
+            best_type() = get(_best_html_output_type, backend_name(plt.backend), :svg) 
+            requested_type = Symbol(plt.attr[:html_output_format])
+            output_type    = if requested_type == :auto best_type() else requested_type end
+
+            ok(mime, fn) = () -> Dict{String,String}(mime => fn(plot_writer(mime, plt)))
+            unsupported  = () -> error("Unsupported output type $output_type")
+            get(Dict(:png  => ok("image/png", base64encode),
+                     :svg  => ok("image/svg+xml", sprint),
+                     :html => ok("text/html", sprint)), 
+                output_type, unsupported)()
         end
 
         # default text/plain passes to html... handles Interact issues
         Base.show(io::IO, m::MIME"text/plain", plt::Plot) = _show(io, MIME"text/html", plt)
 
         ENV["MPLBACKEND"] = "Agg"
-        set_ijulia_output("text/html")
     end
 end
 

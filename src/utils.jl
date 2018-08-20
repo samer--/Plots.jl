@@ -569,7 +569,7 @@ function get_clims(sp::Subplot)
         isfinite(clims[1]) && (zmin = clims[1])
         isfinite(clims[2]) && (zmax = clims[2])
     end
-    return zmin < zmax ? (zmin, zmax) : (0.0, 0.0)
+    return zmin < zmax ? (zmin, zmax) : (-0.1, 0.1)
 end
 
 _update_clims(zmin, zmax, emin, emax) = min(zmin, emin), max(zmax, emax)
@@ -1052,7 +1052,7 @@ guidefont(ax::Axis) = font(
 
 # ---------------------------------------------------------------
 # converts unicode scientific notation unsupported by pgfplots and gr
-# into a format that works 
+# into a format that works
 
 function convert_sci_unicode(label::AbstractString)
     unicode_dict = Dict(

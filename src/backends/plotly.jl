@@ -147,7 +147,7 @@ function plotly_annotation_dict(x, y, val; xref="paper", yref="paper")
         :text => val,
         :xref => xref,
         :x => x,
-        :yref => xref,
+        :yref => yref,
         :y => y,
         :showarrow => false,
     )
@@ -791,6 +791,11 @@ function _show(io::IO, ::MIME"image/png", plt::Plot{PlotlyBackend})
 end
 
 function _show(io::IO, ::MIME"image/svg+xml", plt::Plot{PlotlyBackend})
+    prepare_output(plt)
+    write(io, html_head(plt) * html_body(plt))
+end
+
+function Base.show(io::IO, ::MIME"text/html", plt::Plot{PlotlyBackend})
     prepare_output(plt)
     write(io, html_head(plt) * html_body(plt))
 end
