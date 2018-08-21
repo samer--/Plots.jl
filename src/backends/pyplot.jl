@@ -84,6 +84,7 @@ function _initialize_backend(::PyPlotBackend)
         export PyPlot
         const pycolors = PyPlot.pyimport("matplotlib.colors")
         const pypath = PyPlot.pyimport("matplotlib.path")
+        const mplot3d = PyPlot.pyimport("mpl_toolkits.mplot3d")
         const pypatches = PyPlot.pyimport("matplotlib.patches")
         const pyfont = PyPlot.pyimport("matplotlib.font_manager")
         const pyticker = PyPlot.pyimport("matplotlib.ticker")
@@ -1256,7 +1257,7 @@ function py_add_legend(plt::Plot, sp::Subplot, ax)
                         linestyle = py_linestyle(:path,series[:linestyle]),
                         marker = py_marker(series[:markershape]),
                         markeredgecolor = py_markerstrokecolor(series),
-                        markerfacecolor = py_markercolor(series)
+                        markerfacecolor = series[:marker_z] == nothing ? py_markercolor(series) : py_color(series[:markercolor][0.5])
                     )
                 else
                     series[:serieshandle][1]
