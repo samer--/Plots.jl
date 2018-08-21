@@ -213,8 +213,8 @@ end
 gr_pt_to_ndu(x) = M_PER_PT * x / _ndu_in_m[1]
 gr_char_height(f) = gr_pt_to_ndu(f.pointsize)
 
-gr_tick_label_formatter(axis) = ( axis[:ticks] != :auto ? string
-                                : ( axis[:scale] in _logScales      ? identity
+gr_tick_label_formatter(axis) = ( !(axis[:ticks] in (:auto, :native)) ? string
+                                : ( axis[:scale] in _logScales      ? identity # FIXME: string(_,"\\ ")
                                   : axis[:formatter] == :scientific ? convert_sci_unicode
                                   : string
                                   ))
@@ -296,7 +296,7 @@ function gr_polaraxes(rlims, sp::Subplot)
     sinf = sind.(a)
     cosf = cosd.(a)
     rtick_values, rtick_labels = get_ticks(yaxis)
-    if yaxis[:formatter] == :scientific && yaxis[:ticks] == :auto
+    if yaxis[:formatter] == :scientific && yaxis[:ticks] in (:auto, :native)
         rtick_labels = convert_sci_unicode(rtick_labels)
     end
 
@@ -633,7 +633,7 @@ function min_padding(sp::Subplot{GRBackend}, axis_info)
     end
     function axis_padding(axis, ticks, direction, dim)
         pad1 = text_height(TEXT_PAD, guidefont(axis), axis[:guide])
-        if (ticks in (nothing, false) || length(ticks[2])==0)
+        if (ticks in (nothing, false, :none) || length(ticks[2])==0)
             pad = 0
         else
             to_string = gr_tick_label_formatter(axis)
