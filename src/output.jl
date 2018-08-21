@@ -164,17 +164,31 @@ end
 @require IJulia begin
     if IJulia.inited
 
+        """
+        Add extra jupyter mimetypes to display_dict based on the plot backed.
+
+        The default is nothing, except for plotly based backends, where it
+        adds data for `application/vnd.plotly.v1+json` that is used in
+        frontends like jupyterlab and nteract.
+        """
+        plotly_mime(x) = Dict("application/vnd.plotly.v1+json" => x)
+        extra(plt::Plot) = Dict()
+        extra(plt::Plot{PlotlyJSBackend}) = plotly_mime(JSON.lower(plt.o))
+        extra(plt::Plot{PlotlyBackend}) = plotly_mime(Dict(:data => plotly_series(plt),
+                                                           :layout => plotly_layout(plt)))
+
         function IJulia.display_dict(plt::Plot)
-            best_type() = get(_best_html_output_type, backend_name(plt.backend), :svg) 
+            best_type() = get(_best_html_output_type, backend_name(plt.backend), :svg)
             requested_type = Symbol(plt.attr[:html_output_format])
             output_type    = if requested_type == :auto best_type() else requested_type end
 
             ok(mime, fn) = () -> Dict{String,String}(mime => fn(plot_writer(mime, plt)))
             unsupported  = () -> error("Unsupported output type $output_type")
-            get(Dict(:png  => ok("image/png", base64encode),
-                     :svg  => ok("image/svg+xml", sprint),
-                     :html => ok("text/html", sprint)), 
-                output_type, unsupported)()
+            merge(extra(plt),
+                  get(Dict(:png  => ok("image/png", base64encode),
+                           :svg  => ok("image/svg+xml", sprint),
+                           :html => ok("text/html", sprint)),
+                      output_type, unsupported)())
         end
 
         # default text/plain passes to html... handles Interact issues
